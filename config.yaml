@@ -57,7 +57,7 @@ hardware:
     mode: edge_tts           # options: stdout | edge_tts    
     # NOTE: set to 'stdout' for headless testing (text only, no audio)
     output_device: plughw:1,0  # USB speaker (card 1, device 0)
-    edge_tts_voice: en-US-ChristopherNeural
+    edge_tts_voice: en-US-AnaNeural         # Soft, female voice for Teela
     play_beep: true        # audible wake-word / acknowledgment
 
   serial:
@@ -92,8 +92,8 @@ voice:
   # Text-to-speech backend
   # Recommendations (in order):
   #   1. "edge_tts" — cloud-quality, zero local compute, ~1MB/s
-  #      Best voice: en-US-ChristopherNeural (warm, friendly)
-  #      Alternative: en-US-AriaNeural (calm, soft)
+  #      Best voice: en-US-AnaNeural (soft, feminine, perfect for Teela)
+  #      Alternative: en-US-NovaNeural (calm, warm female)
   #      Full list: edge-tts --list-voices
   #   2. "espeak" — offline, robotic, no network needed
   #   3. "stdout" — just print text, for headless dev
@@ -101,9 +101,9 @@ voice:
   prosody_enabled: true
 
   # TTS voice selection
-  # Try: edge-tts --text "Hello, I'm Teela." --voice "en-US-ChristopherNeural" --play
+  # Try: edge-tts --text "Hello, I'm Teela." --voice "en-US-AnaNeural" --play
   # Try: edge-tts --text "Hello, I'm Teela." --voice "en-US-NovaNeural" --play
-  tts_voice: en-US-ChristopherNeural   # or en-US-NovaNeural, en-US-AriaNeural
+  tts_voice: en-US-AnaNeural           # Soft, feminine voice for Teela
 
   # Wake word — "Hey Teela"
   # Backends (in order of preference):
