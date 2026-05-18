@@ -57,7 +57,7 @@ hardware:
     mode: edge_tts           # options: stdout | edge_tts    
     # NOTE: set to 'stdout' for headless testing (text only, no audio)
     output_device: plughw:1,0  # USB speaker (card 1, device 0)
-    edge_tts_voice: en-US-AnaNeural         # Soft, female voice for Teela
+    edge_tts_voice: en-US-JennyNeural     # Teen girl voice for Teela
     play_beep: true        # audible wake-word / acknowledgment
 
   serial:
@@ -101,9 +101,9 @@ voice:
   prosody_enabled: true
 
   # TTS voice selection
-  # Try: edge-tts --text "Hello, I'm Teela." --voice "en-US-AnaNeural" --play
-  # Try: edge-tts --text "Hello, I'm Teela." --voice "en-US-NovaNeural" --play
-  tts_voice: en-US-AnaNeural           # Soft, feminine voice for Teela
+  # Try: edge-tts --text "Hello, I'm Teela." --voice "en-US-JennyNeural" --play
+  # Try: edge-tts --text "Hello, I'm Teela." --voice "en-US-AriaNeural" --play
+  tts_voice: en-US-JennyNeural         # Teen girl voice for Teela
 
   # Wake word — "Hey Teela"
   # Backends (in order of preference):
