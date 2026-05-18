@@ -45,7 +45,7 @@ class WakeWordDetector:
         # Energy gating — sounddevice returns float32 in [-1.0, +1.0]
         # 0.02 is a normal speaking voice at 50cm, 0.01 is quiet room
         # NOTE: this lavalier mic is quiet — threshold lowered
-        self._energy_threshold = 0.006
+        self._energy_threshold = 0.003
         self._energy_bg = 0.0005
         self._energy_alpha = 0.98
 
@@ -177,7 +177,7 @@ class WakeWordDetector:
             ~0.1  = shouting / clap
             ~0.3  = very loud / tapping mic
         """
-        trigger_rms = 0.03  # reasonable speaking voice
+        trigger_rms = 0.008  # lowered for quiet lavalier mic (realistic trigger ~0.007 RMS)
         if rms > trigger_rms:
             self._last_detection_time = timestamp
             return WakeEvent(keyword="teela", confidence=0.3, timestamp=timestamp)
