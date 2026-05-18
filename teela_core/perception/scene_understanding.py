@@ -31,6 +31,7 @@ class SceneState:
     self_pose: tuple[float, float, float, float, float, float] = (0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
     caption: str = ""
     safety_status: str = "nominal"  # nominal | caution | emergency
+    pointed_at: Optional[dict] = None  # {"object_id": ..., "name": ..., "confidence": ..., "pixel_distance": ...}
     metadata: Dict[str, Any] = field(default_factory=dict)
 
     def to_json(self, path: Path) -> None:
@@ -139,6 +140,7 @@ class SceneUnderstanding:
             self_pose=self._estimate_self_pose(),
             caption=caption,
             safety_status=self._safety_check(obstacles),
+            pointed_at=None,  # set by gesture module after scene_understanding
         )
         state.to_json(self.output_path)
         return state
