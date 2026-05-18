@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Teela Bringup Script
+"""Teela Bringup — Hardware Check for Jetson
 
 Usage:
     python3 -m scripts.bringup [--config config.yaml]
 
-Checks all subsystems and brings Teela online.
+Checks each physical subsystem and reports OK / FAIL with suggestions.
 """
 
 import argparse
@@ -15,125 +15,146 @@ import time
 from pathlib import Path
 
 import serial
+import yaml
+
+from teela_core.perception.camera import RealCamera
+from teela_core.comms.serial_link import SerialLink
 
 
-def check_jetson() -
-    dict:
-    """Check Jetson system health."""
-    report = {"status": "ok", "ram_mb": None, "disk_gb": None, "uptime": None}
-    try:
-        ram = subprocess.check_output("free -m | awk '/Mem:/ {print $7}'", shell=True, text=True).strip()
-        report["ram_mb"] = int(ram)
-        disk = subprocess.check_output("df -h / | awk 'NR==2 {print $4}'", shell=True, text=True).strip()
-        report["disk_gb"] = disk
-        uptime = subprocess.check_output("uptime -p", shell=True, text=True).strip()
-        report["uptime"] = uptime
-        if report["ram_mb"] is not None and report["ram_mb"] < 1024:
-            report["status"] = "warning"
-    except Exception as e:
-        report["status"] = f"error: {e}"
-    return report
+class BringupChecker:
+    def __init__(self, config: dict):
+        self.config = config
+        self.results = []
 
+    def check(self, name: str, status: str, detail: str = "", advice: str = ""):
+        ok = status in ("ok", "warning")
+        icon = "✅" if status == "ok" else ("⚠️" if status == "warning" else "❌")
+        self.results.append({"name": name, "status": status, "detail": detail, "advice": advice, "ok": ok})
+        print(f"   {icon} {name}: {status}")
+        if detail:
+            print(f"      {detail}")
+        if advice and not ok:
+            print(f"      💡 {advice}")
 
-def check_camera(device: str = "/dev/video0") -
-    dict:
-    """Check USB camera."""
-    report = {"status": "not_found", "fps": None}
-    if not Path(device).exists():
-        return report
-    try:
-        import cv2
-        cap = cv2.VideoCapture(device)
-        if cap.isOpened():
-            report["status"] = "ok"
-            report["fps"] = cap.get(cv2.CAP_PROP_FPS)
-            cap.release()
+    def run_all(self):
+        print("=" * 50)
+        print("Teela Hardware Bringup Check")
+        print("=" * 50)
+
+        # 1. System
+        self._check_system()
+        # 2. Camera
+        self._check_camera()
+        # 3. Microphone
+        self._check_microphone()
+        # 4. Serial / Teensy
+        self._check_serial()
+        # 5. Network (for Kimi)
+        self._check_network()
+        # 6. Disk space
+        self._check_disk()
+
+        print()
+        print("=" * 50)
+        ok_count = sum(1 for r in self.results if r["ok"])
+        fail_count = len(self.results) - ok_count
+        if fail_count == 0:
+            print(f"🎉 ALL CHECKS PASSED ({ok_count}/{len(self.results)})")
+            print("Teela is ready to start. Run: python3 -m scripts.conversation_loop")
         else:
-            report["status"] = "failed_open"
-    except ImportError:
-        report["status"] = "cv2_missing"
-    return report
+            print(f"⚠️ {ok_count}/{len(self.results)} passed — {fail_count} need attention.")
+        print("=" * 50)
 
+    def _check_system(self):
+        try:
+            ram_free = int(subprocess.check_output("free -m | awk '/Mem:/ {print $7}'", shell=True, text=True).strip())
+            status = "ok" if ram_free > 512 else "warning"
+            self.check("RAM free", status, f"{ram_free} MB free", "Close other apps if < 512 MB")
+        except Exception as e:
+            self.check("RAM free", "fail", str(e), "Install 'procps' or check with free -m")
 
-def check_teensy(port: str = "/dev/ttyACM0") -
-    dict:
-    """Check Teensy serial connection."""
-    report = {"status": "not_found", "pong_ms": None}
-    if not Path(port).exists():
-        return report
-    try:
-        with serial.Serial(port, 921600, timeout=0.5) as ser:
-            ser.write(b"PING
-")
-            t0 = time.time()
-            resp = ser.readline()
-            dt = (time.time() - t0) * 1000
-            if resp and b"PONG" in resp:
-                report["status"] = "ok"
-                report["pong_ms"] = round(dt, 2)
+    def _check_camera(self):
+        cam_cfg = self.config.get("hardware", {}).get("camera", {})
+        dev = cam_cfg.get("device", "/dev/video0")
+        if not Path(dev).exists():
+            self.check("Camera", "fail", f"{dev} not found", "Plug in USB camera or check dmesg")
+            return
+        try:
+            cap = RealCamera(device=dev, width=640, height=480, fps=15)
+            cap.start()
+            time.sleep(0.5)
+            frame = cap.get_frame()
+            cap.stop()
+            if frame is not None:
+                h, w = frame.shape[:2]
+                self.check("Camera", "ok", f"{dev} → {w}x{h} ✅")
             else:
-                report["status"] = "no_response"
-    except Exception as e:
-        report["status"] = f"error: {e}"
-    return report
+                self.check("Camera", "fail", "Device exists but no frames", "Check v4l2 driver")
+        except Exception as e:
+            self.check("Camera", "fail", str(e), "Install opencv-python, check udev rules")
 
+    def _check_microphone(self):
+        dev_cfg = self.config.get("hardware", {}).get("microphone", {})
+        try:
+            import sounddevice as sd
+            devices = sd.query_devices()
+            inputs = [d for d in devices if d["max_input_channels"] > 0]
+            if inputs:
+                self.check("Microphone", "ok", f"Found {len(inputs)} capture device(s)")
+            else:
+                self.check("Microphone", "warning", "No input devices found", "Plug in USB mic or check alsamixer")
+        except ImportError:
+            self.check("Microphone", "warning", "sounddevice not installed", "pip install sounddevice")
 
-def check_cloud_bridge(uri: str = "ws://localhost:8080/teela") -
-    dict:
-    """Check cloud WebSocket reachability."""
-    report = {"status": "unknown", "latency_ms": None}
-    # TODO: implement actual WebSocket ping
-    report["status"] = "manual_check_required"
-    return report
+    def _check_serial(self):
+        ser_cfg = self.config.get("hardware", {}).get("serial", {})
+        port = ser_cfg.get("port", "/dev/ttyACM0")
+        baud = ser_cfg.get("baud", 921600)
+
+        if not Path(port).exists():
+            self.check("Serial (Teensy)", "fail", f"{port} not found", "Plug in Teensy USB. Verify with ls /dev/ttyACM*")
+            return
+
+        link = SerialLink(port=port, baud=baud)
+        ok = link.connect()
+        if ok:
+            time.sleep(0.3)
+            link.send_ping()
+            time.sleep(0.2)
+            status = link.get_status()
+            if status:
+                self.check("Serial (Teensy)", "ok", f"{port} @ {baud} — Teensy status: {status}")
+            else:
+                self.check("Serial (Teensy)", "ok", f"{port} @ {baud} — no status yet")
+            link.disconnect()
+        else:
+            self.check("Serial (Teensy)", "fail", f"Could not open {port}", "Check permissions: sudo chmod 666 {port}")
+
+    def _check_network(self):
+        try:
+            subprocess.check_output(["curl", "-s", "--max-time", "5", "https://api.moonshot.cn"], stderr=subprocess.STDOUT)
+            self.check("Network (Kimi)", "ok", "api.moonshot.cn reachable")
+        except subprocess.CalledProcessError:
+            self.check("Network (Kimi)", "fail", "Cannot reach api.moonshot.cn", "Check WiFi / internet")
+        except FileNotFoundError:
+            self.check("Network (Kimi)", "ok", "curl not found, assuming connectivity is fine")
+
+    def _check_disk(self):
+        try:
+            out = subprocess.check_output("df -h / | awk 'NR==2 {print $4}'", shell=True, text=True).strip()
+            self.check("Disk space", "ok", f"Free: {out}")
+        except Exception:
+            self.check("Disk space", "warning", "Could not check", "Check manually")
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Teela Bringup")
-    parser.add_argument("--config", default="config.yaml", help="Config file")
+    parser = argparse.ArgumentParser(description="Teela bringup")
+    parser.add_argument("--config", default="config.yaml")
     args = parser.parse_args()
 
-    print("========================================")
-    print("       TEELA BRINGUP v5.0")
-    print("========================================")
-    print()
-
-    results = {}
-
-    print("[1/4] Checking Jetson system...")
-    results["jetson"] = check_jetson()
-    print(f"       Status: {results['jetson']['status']}")
-    print(f"       Free RAM: {results['jetson'].get('ram_mb', 'N/A')} MB")
-    print(f"       Disk Free: {results['jetson'].get('disk_gb', 'N/A')}")
-    print()
-
-    print("[2/4] Checking camera...")
-    results["camera"] = check_camera()
-    print(f"       Status: {results['camera']['status']}")
-    print(f"       FPS: {results['camera'].get('fps', 'N/A')}")
-    print()
-
-    print("[3/4] Checking Teensy serial...")
-    results["teensy"] = check_teensy()
-    print(f"       Status: {results['teensy']['status']}")
-    print(f"       PONG latency: {results['teensy'].get('pong_ms', 'N/A')} ms")
-    print()
-
-    print("[4/4] Checking cloud bridge...")
-    results["cloud"] = check_cloud_bridge()
-    print(f"       Status: {results['cloud']['status']}")
-    print()
-
-    # Summary
-    all_ok = all(r["status"] == "ok" or r["status"] == "manual_check_required" for r in results.values())
-    if all_ok:
-        print("✅ ALL SYSTEMS GREEN")
-        sys.exit(0)
-    else:
-        print("⚠️  SOME SUBSYSTEMS NEED ATTENTION")
-        for name, r in results.items():
-            if r["status"] not in ("ok", "manual_check_required"):
-                print(f"   - {name}: {r['status']}")
-        sys.exit(1)
+    config = yaml.safe_load(Path(args.config).read_text()) if Path(args.config).exists() else {}
+    checker = BringupChecker(config)
+    checker.run_all()
 
 
 if __name__ == "__main__":

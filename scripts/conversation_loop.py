@@ -1,220 +1,347 @@
 #!/usr/bin/env python3
-"""Teela Conversation Loop
+"""Teela Runtime Mind — Main Loop for Current Hardware
 
-The main cognitive-integration script. This ties together ALL modules:
-    - Perception (camera) → scene_state
-    - Pointing detection
-    - STT (listening)
-    - Emotion engine
-    - Memory (people, episodes, facts)
-    - Personality
-    - Social awareness
-    - Cloud reasoning (LLM)
-    - TTS (speaking)
-    - Non-verbal expression
-    - Proactive behavior
-    - Idle behavior
-    - Reflex layer
-    - Teensy serial control
+Works with ONLY these actuators:
+    - Cameras    (eyes)
+    - Microphone (ears)
+    - Neck pan/tilt (head movement = all expression)
+
+Everything else (legs, arms, e-skin) is gracefully stubbed until installed.
 
 Usage:
+    export KIMI_API_KEY="..."
     python3 -m scripts.conversation_loop --config config.yaml
+
+Key bindings (from keyboard if no microphone):
+    Ctrl+C → graceful shutdown
 """
 
 import argparse
-import asyncio
+import base64
+import io
 import json
+import math
+import signal
+import sys
+import threading
 import time
 from pathlib import Path
+from typing import Optional
 
-import numpy as np
+import cv2
+import yaml
 
-# Core systems
+from teela_core.perception.camera import RealCamera
 from teela_core.perception.scene_understanding import SceneUnderstanding
 from teela_core.gestures.pointing_integration import PointingSceneIntegrator
-from teela_core.reflex.reflex_layer import ReflexLayer
 from teela_core.comms.serial_link import SerialLink
 from teela_core.comms.cloud_bridge import CloudBridge
+from teela_core.voice.stt_mic import MicSTT
+from teela_core.voice.tts_speaker import SpeakerTTS
+from teela_core.expression.neck_expression import NeckExpression, NeckCommand
 
-# Cognitive
+# Cognitive modules (available regardless of actuators)
 from teela_core.cognitive.emotion import EmotionEngine, EmotionalEvent
-from teela_core.cognitive.memory import MemoryStore, Episode
+from teela_core.cognitive.memory import MemoryStore
 from teela_core.cognitive.personality import PersonalityEngine
 from teela_core.cognitive.social import SocialAwareness
-from teela_core.cognitive.identity import SelfModel
-
-# Expression
-from teela_core.expression.nonverbal import NonVerbalExpression
-from teela_core.expression.prosody import ProsodyEngine
-
-# Behavior
-from teela_core.behavior.proactive import ProactiveBehavior
-from teela_core.behavior.idle import IdleBehavior
-from teela_core.behavior.curiosity import CuriosityDrive
-
-# Voice
-from teela_core.voice.stt import STTPipeline
-from teela_core.voice.tts import TTSEngine
+from teela_core.cognitive.identity import SelfModel, BodyState
 
 
-class TeelaMind:
-    """Central integration: all cognitive subsystems wired together."""
+def sigint_handler(signum, frame):
+    print("\n[Runtime] Shutdown signal received. Stopping motors...")
+    TeelaRuntimeMind._instance.shutdown()
+    sys.exit(0)
+
+
+signal.signal(signal.SIGINT, sigint_handler)
+
+
+class TeelaRuntimeMind:
+    """The brain as it exists TODAY — eyes, ears, neck, cloud."""
+
+    _instance: Optional["TeelaRuntimeMind"] = None
 
     def __init__(self, config_path: str = "config.yaml"):
-        # Config
-        import yaml
-        self.config = yaml.safe_load(Path(config_path).read_text()) if Path(config_path).exists() else {}
+        TeelaRuntimeMind._instance = self
 
-        # Systems
+        # ── Load config ──────────────────────────────────────
+        config = {}
+        p = Path(config_path)
+        if p.exists():
+            config = yaml.safe_load(p.read_text())
+        self.config = config
+        hw = config.get("hardware", {})
+        self.cap = config.get("robot", {}).get("capabilities", {})
+
+        # ── Hardware: Camera ─────────────────────────────────
+        self.capabilities = {
+            "eyes": self.cap.get("eyes", True),
+            "ears": self.cap.get("ears", True),
+            "neck": self.cap.get("neck", True),
+            "walking": self.cap.get("walking", False),
+            "e_skin": self.cap.get("e_skin", False),
+        }
+
+        self.camera: Optional[RealCamera] = None
+        if self.capabilities["eyes"]:
+            cam_cfg = hw.get("camera", {})
+            self.camera = RealCamera(
+                device=cam_cfg.get("device", "/dev/video0"),
+                width=cam_cfg.get("width", 640),
+                height=cam_cfg.get("height", 480),
+                fps=cam_cfg.get("fps", 15),
+            )
+
         self.scene = SceneUnderstanding()
         self.pointing = PointingSceneIntegrator()
-        self.reflex = ReflexLayer()
-        self.serial = SerialLink(port=self.config.get("hardware", {}).get("serial", {}).get("port", "/dev/ttyACM0"))
-        self.cloud = CloudBridge(uri=self.config.get("cloud", {}).get("websocket_uri", "ws://localhost:8080/teela"))
-        
+
+        # ── Hardware: Serial / Neck ────────────────────────
+        self.serial = SerialLink(
+            port=hw.get("serial", {}).get("port", "/dev/ttyACM0"),
+            baud=hw.get("serial", {}).get("baud", 921600),
+            on_status=self._on_telemetry,
+        )
+
+        # ── Hardware: Microphone / STT ────────────────
+        self.mic = None
+        if self.capabilities["ears"]:
+            mic_cfg = hw.get("microphone", {})
+            self.mic = MicSTT(
+                stt_endpoint=mic_cfg.get("stt_endpoint"),
+                samplerate=mic_cfg.get("samplerate", 16000),
+            )
+            self._pending_transcript: Optional[str] = None
+
+        # ── Hardware: Speaker / TTS ────────────────────
+        speak_cfg = hw.get("speaker", {})
+        self.speaker = SpeakerTTS(
+            mode=speak_cfg.get("mode", "stdout"),
+            edge_tts_voice=speak_cfg.get("edge_tts_voice", "en-US-AriaNeural"),
+        )
+        if speak_cfg.get("play_beep", True):
+            self.speaker.play_beep(880, 200)
+
+        # ── Cloud LLM ────────────────────────────────────
+        self.cloud = CloudBridge(config.get("cloud", {}))
+
+        # ── Cognitive ────────────────────────────────────
         self.emotion = EmotionEngine()
         self.memory = MemoryStore()
         self.personality = PersonalityEngine()
         self.social = SocialAwareness()
         self.identity = SelfModel()
-        
-        self.expression = NonVerbalExpression()
-        self.prosody = ProsodyEngine()
-        
-        self.proactive = ProactiveBehavior(self.personality.profile.to_dict(), {}, self.memory, self.social)
-        self.idle = IdleBehavior()
-        self.curiosity = CuriosityDrive()
-        
-        self.stt = STTPipeline()
-        self.tts = TTSEngine()
+        self.identity.update_body_state(BodyState())
 
+        # ── Expression ───────────────────────────────────
+        self.neck = NeckExpression()
+        self._current_neck_cmd: Optional[NeckCommand] = None
+
+        # ── State ─────────────────────────────────────────
         self._running = False
         self._last_tick = time.time()
+        self._last_cloud_reply = ""
+        self._last_scene_time = 0.0
+        self._scene_state = None
+
+        self._tick_count = 0
+
+    # ── Lifecycle ────────────────────────────────────────
+    def startup(self) -> bool:
+        print("=" * 50)
+        print("Teela Runtime Mind — Starting...")
+        print("=" * 50)
+
+        # Camera
+        if self.camera:
+            self.camera.start()
+            print("[Startup] Camera capture thread started.")
+
+        # Serial
+        if not self.serial.connect():
+            print("[Startup] WARNING: Serial not connected. Neck will not move until Teensy is plugged in.")
+            print("           You can still run the brain — just type 'connect' later.")
+        else:
+            time.sleep(0.5)
+            self.serial.send_ping()
+            print("[Startup] Serial connected. Teensy ping sent.")
+
+        # Mic
+        if self.mic:
+            self.mic.start(on_transcript=self._on_transcript)
+            print("[Startup] Microphone listening (or keyboard fallback).")
+
+        # Identity
+        self.identity.state.name = "Teela"
+        self.identity.state.feelings = "ready and curious"
+        self.emotion.update(EmotionalEvent(
+            event_type="startup", valence_impact=0.3, arousal_impact=0.2,
+            dominance_impact=0.0, reason="I'm waking up."
+        ))
+        self.speaker.speak("Hello. I'm Teela. My eyes are open and I'm listening.")
+
+        print("\n✅ Teela is LIVE.")
+        print("   Eyes:    " + ("OK" if self.camera else "OFF"))
+        print("   Ears:    " + ("OK" if self.mic else "OFF"))
+        print("   Neck:    " + ("OK" if self.serial._connected else "OFF (Teensy not detected)"))
+        print("   Cloud:   " + ("Kimi API" if self.cloud.api_key else "LOCAL / no key"))
+        print()
+        return True
+
+    def shutdown(self) -> None:
+        self._running = False
+        if self.camera:
+            self.camera.stop()
+        if self.mic:
+            self.mic.stop()
+        self.serial.disconnect()
+        print("[Shutdown] Teela is asleep.")
+
+    # ── Main Loop ────────────────────────────────────────
+    def run(self) -> None:
+        self._running = True
+        tick_hz = 10.0  # 10 Hz main cognition
+
+        while self._running:
+            try:
+                self.tick()
+                self._tick_count += 1
+                time.sleep(1.0 / tick_hz)
+            except KeyboardInterrupt:
+                break
 
     def tick(self) -> None:
-        """Main cognitive loop — call at ~10 Hz."""
         now = time.time()
         dt = now - self._last_tick
         self._last_tick = now
 
-        # 1. PERCEPTION
-        frame = self.scene.capture()
+        # ── 1. PERCEPTION (eyes) ───────────────────────────
+        frame = None
+        if self.camera:
+            frame = self.camera.get_frame()
+
+        scene_description = "I see nothing."
+        pointed_object = None
+        person_positions = []
+
         if frame is not None:
-            scene_state = self.scene.process_frame(frame)
-            scene_state = self.pointing.update_scene_state(frame, scene_state)
+            self._scene_state = self.scene.process_frame(frame)
+            self._scene_state = self.pointing.update_scene_state(frame, self._scene_state)
+            scene_description = self._scene_state.json_description or "unknown scene"
 
-            # 2. REFLEX (safety)
-            # sensor_readings = ...  # from Teensy or direct
-            # reflex_cmd = self.reflex.evaluate(sensor_readings)
-            # if reflex_cmd.cmd != "RESUME":
-            #     self._handle_reflex(reflex_cmd)
+            # Extract pointing
+            if self._scene_state.pointed_object:
+                pointed_object = self._scene_state.pointed_object
+            # Extract person positions
+            for det in getattr(self._scene_state, "humans", {}).get("detections", []):
+                if "position" in det:
+                    person_positions.append(det["position"])
 
-            # 3. SOCIAL + MEMORY
-            # Update who's present, conversation state
-            self.social.update_presence([])  # TODO: person detections from scene
-            social_events = self.social.get_social_events()
-            for event in social_events:
-                self._handle_social_event(event)
+            self._last_scene_time = now
+            # save
+            self._scene_state.to_json(Path(self.config.get("perception", {}).get("output_path", "/tmp/scene_state.json")))
 
-            # 4. EMOTION
-            emotion_state = self.emotion.update()
-            
-            # Emotions colored by personality
-            emotion_dict = emotion_state.to_dict()
-            emotion_state_dict = self.personality.modulate_emotion(emotion_dict)
+        # ── 2. COGNITION ─────────────────────────────────
+        emotion_state = self.emotion.update()
+        emotion_dict = emotion_state.to_dict()
 
-            # 5. PROACTIVE BEHAVIOR
-            action = self.proactive.tick()
-            if action:
-                self._execute_action(action)
+        # Decide if we should speak this tick
+        should_speak = bool(self._pending_transcript)
+        user_text = self._pending_transcript or ""
 
-            # 6. IDLE (if truly idle)
-            if self.social.interaction.mode == "idle" and frame is not None:
-                idle_state = self.idle.tick(dt, emotion_dict)
-                # Send idle expression commands to Teensy / face module
+        # ── 3. CLOUD REASONING (if user spoke or new scene data) ──
+        cloud_reply = ""
+        if should_speak or self._tick_count % 30 == 0:  # idle check every ~3s
+            # Compose context for the LLM
+            context_parts = []
+            context_parts.append(f"Current emotion: {emotion_state.describe()}")
+            context_parts.append(f"Scene: {scene_description}")
+            if pointed_object:
+                context_parts.append(f"Person is pointing at: {pointed_object}")
+            context_parts.append(f"My neck posture (pan, tilt): {self._current_neck_cmd or 'neutral'}")
+            context_parts.append(f"My identity: {self.identity.state.name}. {self.identity.state.feelings}")
 
-            # 7. EXPRESSION
-            expression_state = self.expression.update(emotion_dict, {"mode": self.social.interaction.mode})
+            extra_system = "\n".join(context_parts)
 
-            # 8. CURIOSTY
-            curiosity_state = self.curiosity.update(
-                current_position=scene_state.self_pose[:3],
-                detected_objects=[],  # from scene_state.objects
+            # Encode last frame as base64 for vision if we have camera
+            images = []
+            if frame is not None and self.capabilities["eyes"]:
+                _, buf = cv2.imencode(".jpg", frame)
+                images.append([base64.b64encode(buf).decode()])
+
+            if should_speak:
+                prompt = f"The person just said: '{user_text}'. What do you say or do?"
+            else:
+                prompt = "Take in the scene and your emotions. Do you want to say anything or look at something?"
+
+            resp = self.cloud.chat(
+                prompt,
+                extra_system=extra_system,
+                images=images[0] if images else None,
+            )
+            cloud_reply = resp.text
+            self._last_cloud_reply = cloud_reply
+            self._pending_transcript = None
+
+        # ── 4. SPEAK ──────────────────────────────────────
+        if cloud_reply and cloud_reply.strip():
+            print(f"\n[Teela 🗣️]  {cloud_reply}")
+            self.speaker.speak(cloud_reply)
+
+        # ── 5. EXPRESSION (neck) ──────────────────────────
+        # Determine target person to look at
+        speaker_position = person_positions[0] if person_positions else None
+        # If user just spoke, look toward first detected person
+        eskin_face_touched = False  # will be wired when e-skin is installed
+
+        neck_cmd = self.neck.update(
+            emotion=emotion_dict,
+            speaker_position=speaker_position,
+            pointed_position=(pointed_object.get("position") if pointed_object else None),
+            mode="conversation" if should_speak else "idle",
+            eskin_face_touched=eskin_face_touched,
+        )
+        self._current_neck_cmd = neck_cmd
+
+        # Send to Teensy
+        if self.serial._connected:
+            self.serial.send_neck(
+                neck_cmd.pan_deg,
+                neck_cmd.tilt_deg,
+                speed_dps=neck_cmd.speed_dps,
             )
 
-            # 9. SCENE STATE enrichment
-            scene_state.metadata.update({
-                "emotional_state": emotion_dict,
-                "personality_seed": self.personality.get_voice_persona(),
-                "idle_state": vars(idle_state) if self.social.interaction.mode == "idle" else None,
-                "proactive_action": None if not action else vars(action),
-            })
-
-            # Write enriched scene_state
-            scene_state.to_json(Path(self.config.get("perception", {}).get("output_path", "/tmp/scene_state.json")))
-
-    def _handle_social_event(self, event: dict) -> None:
-        """React to social events with emotions and actions."""
-        if event["type"] == "person_entered":
-            self.emotion.update(EmotionalEvent.event_greet(event["name"]))
+        # ── 6. MEMORY SAVE (periodically) ─────────────────
+        if self._tick_count % 100 == 0:  # every 10s
             self.memory.save()
-        elif event["type"] == "person_pointing":
-            self.emotion.update(EmotionalEvent(
-                event_type="pointing",
-                valence_impact=0.2,
-                arousal_impact=0.1,
-                dominance_impact=0.0,
-                reason="Person is pointing at something",
-            ))
-        elif event["type"] == "turn_change":
-            self.social.interaction.current_speaker = event["new_speaker"]
+            if self.mic and not self.mic._has_sounddevice:
+                print("[Mic] Type 'bye' to exit, or anything else to talk to Teela.")
 
-    def _execute_action(self, action) -> None:
-        """Execute a proposed action."""
-        if action.action_type == "speak":
-            text = action.parameters.get("text", "")
-            emotion_dict = self.emotion.state.to_dict()
-            prosody_params = self.prosody.compute_speech_params(emotion_dict)
-            marked_text = self.prosody.inject_prosody_markers(text, emotion_dict)
-            audio = self.tts.speak(marked_text, prosody_params)
-            # Play audio via ALSA / PyAudio
-        elif action.action_type == "move":
-            x = action.parameters.get("x", 0)
-            y = action.parameters.get("y", 0)
-            self.serial.send_target(x, y, 0, 0.3, "walk")
+    # ── Event Callbacks ──────────────────────────────────
+    def _on_transcript(self, text: str) -> None:
+        """Called by MicSTT when speech is recognized."""
+        print(f"\n[You 🎤]  {text}")
+        self._pending_transcript = text
 
-    def _handle_reflex(self, cmd) -> None:
-        if cmd.cmd == "HALT":
-            self.serial.send_halt()
-        elif cmd.cmd == "EMERGENCY_PARK":
-            self.serial.send_emergency_park()
+        # Emotion: hearing a voice
+        self.emotion.update(EmotionalEvent(
+            event_type="hear_speech", valence_impact=0.1, arousal_impact=0.2,
+            dominance_impact=0.0, reason=f"Person said: {text}"
+        ))
 
-    def run(self) -> None:
-        self._running = True
-        print("Teela mind is awake.")
-        while self._running:
-            try:
-                self.tick()
-                time.sleep(0.05)  # 20 Hz cognition
-            except KeyboardInterrupt:
-                self._running = False
-                print("Teela is going to sleep...")
-                self.memory.save()
-                self.personality.save()
-
-
-def main():
-    parser = argparse.ArgumentParser(description="Teela Conversation Loop")
-    parser.add_argument("--config", default="config.yaml")
-    parser.add_argument("--once", action="store_true", help="Run one tick and exit")
-    args = parser.parse_args()
-
-    mind = TeelaMind(config_path=args.config)
-    if args.once:
-        mind.tick()
-    else:
-        mind.run()
+    def _on_telemetry(self, status: dict) -> None:
+        """Called by SerialLink when STATUS arrives from Teensy."""
+        # In future, parse IMU data, servo temps, etc.
+        pass
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(description="Teela Runtime Mind")
+    parser.add_argument("--config", default="config.yaml", help="Path to config.yaml")
+    args = parser.parse_args()
+
+    mind = TeelaRuntimeMind(config_path=args.config)
+    if mind.startup():
+        mind.run()
+    else:
+        print("Startup failed.")

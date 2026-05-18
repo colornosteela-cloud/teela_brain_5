@@ -1,43 +1,99 @@
-# Teela v5.0 Configuration
+# Teela v5.0 Configuration — Current Hardware
+# ==============================================
+# This is the real config matching what is PHYSICALLY installed on Teela.
+# Update this as servos / legs / e-skin are added.
 
 robot:
   id: teela-001
   name: Teela
+  hardware_version: "0.2-alpha"
+  capabilities:
+    eyes: true        # USB camera / CSI camera
+    ears: true        # USB microphone
+    neck: true        # 2 servos: pan + tilt
+    legs: false       # not installed yet
+    arms: false       # not installed yet
+    hands: false      # not installed yet
+    e_skin: false     # silicone skin not fabricated yet
+    ultrasonic: false # no HC-SR04s mounted yet
+    imu: false        # no IMU wired yet
+    walking: false    # no gait engine active
 
 hardware:
   camera:
-    index: 0
+    type: usb          # or "csi"
+    device: /dev/video0
     width: 640
     height: 480
     fps: 15
+    # V-JEPA can run at lower res if needed
+    capture_mode: rgb  # or "bgr"
+
+  microphone:
+    device: "default"  # ALSA device name
+    samplerate: 16000
+    block_duration_ms: 1000
+    silence_duration_ms: 1500
+    stt_endpoint: "http://localhost:8000/transcribe"  # local whisper or cloud
+
+  speaker:
+    mode: stdout        # options: stdout | aplay | edge_tts
+    output_device: default
+    edge_tts_voice: en-US-AriaNeural
+    play_beep: true     # audible wake-word / acknowledgment
+
   serial:
     port: /dev/ttyACM0
     baud: 921600
-  imu:
-    type: mpu6050  # or bno055
-    i2c_addr: 0x68
-  ultrasonic:
-    trigger_pin: 9
-    echo_pin: 10
+    protocol: simple    # simple line-based for now
+
   servos:
-    count: 12
-    controller: pca9685
-    i2c_addr: 0x40
+    count: 2
+    controller: direct   # direct PWM from Teensy 4.1 pins (PCA9685 later)
+    pins: [2, 3]         # [pan, tilt]
     min_us: 500
     max_us: 2500
 
 perception:
+  # V-JEPA is optional — fall back to pure OpenCV if memory is tight
+  vjepa_enabled: false
   vjepa_model: facebook/v-jepa-2
-  moondream_model: null  # vikhyatk/moondream2 if desired
+
+  # Moondream is lightweight enough for Jetson Nano Orin
+  moondream_enabled: true
+  moondream_model: vikhyatk/moondream2
+
+  # Human pose (pointing detection) via MediaPipe
+  pointing_enabled: true
+  mediapipe_enabled: true
+
   target_fps: 10
   output_path: /tmp/scene_state.json
 
+voice:
+  # Text-to-speech backend
+  backend: edge_tts    # options: edge_tts | espeak | stdout
+  prosody_enabled: true
+
+  # Wake word — simple energy threshold if no Porcupine
+  wakeword_enabled: true
+  wakeword_type: energy_threshold  # or "porcupine"
+  wakeword_phrase: "Teela"
+  energy_threshold: 0.015
+
+memory:
+  data_dir: ./memory
+  auto_save_interval_s: 60
+  max_short_term: 100
+
 navigation:
+  # Placeholder values — only relevant once legs are installed
   grid_resolution_m: 0.05
   grid_size_m: [10.0, 10.0]
   robot_radius_m: 0.25
   max_speed_mps: 0.8
   max_yaw_rate_radps: 1.0
+  enabled: false
 
 safety:
   ultrasonic_front_min: 0.4
@@ -46,13 +102,36 @@ safety:
   tilt_max_deg: 25.0
 
 cloud:
-  websocket_uri: ws://localhost:8080/teela
-  llm_api_url: http://localhost:8000/v1/chat/completions
+  # Kimi Cloud API (or local vLLM endpoint)
+  llm_provider: kimi
   llm_model: kimi-k2.6
-  api_key: null  # set via env var LLM_API_KEY
+  api_base: https://api.moonshot.cn/v1
+  api_key: null        # set via env KIMI_API_KEY
+  temperature: 0.7
+  max_tokens: 1024
+  # System prompt is loaded from docs/HUMANISTIC_DESIGN.md section
+  system_prompt_file: docs/TEELA_SYSTEM_PROMPT.md
+
+  # Connection management
   reconnect_interval_s: 5.0
+  request_timeout_s: 30
+
+expression:
+  # Current actuator: neck pan/tilt only
+  # Full-body (silicone servos) is future
+  neck_enabled: true
+  body_enabled: false
+  face_enabled: false    # no LED face — silicone skin is future
+  prosody_enabled: true
 
 logging:
   level: INFO
   path: logs/teela.log
   health_check_interval_s: 5.0
+
+behavior:
+  idle_enabled: true
+  proactive_enabled: true
+  curiosity_enabled: true
+  # Only active when someone is present
+  idle_timeout_s: 15.0

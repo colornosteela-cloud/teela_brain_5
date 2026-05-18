@@ -1,4 +1,4 @@
-Electronic skin (e-skin) distributed body-touch sensory system.
+"""Electronic skin (e-skin) distributed body-touch sensory system.
 
 Teela's silicone skin layer is embedded with pressure sensors (Velostat,
 FSR, etc.) across her body. This module processes raw sensor values,
@@ -20,3 +20,4 @@ Body zones are organized hierarchically:
 
 Sensor fusion: if multiple adjacent zones fire simultaneously,
 the likely cause is a broad touch, not multiple independent events.
+"""

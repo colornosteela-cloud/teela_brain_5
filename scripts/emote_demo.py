@@ -1,24 +1,23 @@
 #!/usr/bin/env python3
-"""Emotion & Expression Demo
+"""Emotion & Expression Demo (Neck-Only Edition)
 
-Shows all of Teela's emotional states and non-verbal expressions in sequence.
-Useful for calibration and testing the expression pipeline.
+Shows Teela's emotional states mapped to neck pan/tilt motion.
+Useful for calibration and testing the neck expression pipeline.
 
 Usage:
     python3 -m scripts.emote_demo
 """
 
 import time
-import json
 
 from teela_core.cognitive.emotion import EmotionEngine, EmotionalEvent
-from teela_core.expression.nonverbal import NonVerbalExpression
+from teela_core.expression.neck_expression import NeckExpression
 from teela_core.expression.prosody import ProsodyEngine
 
 
 def demo():
     emotion = EmotionEngine()
-    expression = NonVerbalExpression()
+    neck = NeckExpression()
     prosody = ProsodyEngine()
 
     scenarios = [
@@ -34,38 +33,33 @@ def demo():
         ("Returning to calm", None),
     ]
 
-    print("=== Teela Emotion & Expression Demo ===\\n")
-    
+    print("=== Teela Emotion & Neck Expression Demo ===\n")
+    print("With Teensy connected, run: python3 -m scripts.conversation_loop")
+    print("This demo shows how emotions map to pan/tilt servo targets.\n")
+
     for label, event in scenarios:
         print(f"--- {label} ---")
-        
-        # Apply event
         if event:
-            state = emotion.update(event)
+            emotion.update(event)
         else:
-            # Let it decay for 3 seconds
-            for _ in range(30):
-                state = emotion.update()
-                time.sleep(0.1)
+            emotion = EmotionEngine()  # reset to neutral
 
-        # Get expressions
-        expr = expression.update(state.to_dict())
-        speech = prosody.compute_speech_params(state.to_dict())
+        state = emotion.state
+        neck_cmd = neck.update(
+            emotion=state.to_dict(),
+            speaker_position=None,
+            mode="idle",
+        )
+        prosody_params = prosody.compute_speech_params(state.to_dict())
 
-        print(f"  PAD: P={state.pleasure:.2f} A={state.arousal:.2f} D={state.dominance:.2f}")
-        dom, val = emotion.get_dominant_emotion()
-        print(f"  Emotion: {dom} ({val:.2f})")
-        print(f"  Mouth: {expr['face']['mouth']:.2f} | Lean: {expr['body']['lean']:.2f} | Gaze: {expr['gaze']['target']}")
-        print(f"  Speech: {speech['wpm']} WPM, pitch +{speech['pitch_shift_hz']} Hz")
+        print(f"  Emotion:  {state.describe()}")
+        print(f"  Neck:     pan={neck_cmd.pan_deg:+6.1f}° tilt={neck_cmd.tilt_deg:+6.1f}° speed={neck_cmd.speed_dps:.0f}°/s")
+        print(f"  Prosody:  {prosody_params}")
         print()
         time.sleep(1.5)
 
-    print("Demo complete.")
-
-
-def main():
-    demo()
+    print("=== Demo complete ===")
 
 
 if __name__ == "__main__":
-    main()
+    demo()

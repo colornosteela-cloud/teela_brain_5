@@ -1,114 +1,164 @@
-"""Serial link to Teensy 4.1 gait controller.
+"""Serial communication to Teensy 4.1.
 
-Protocol:
-    Jetson tx:   TARGET <x_m> <y_m> <yaw_rad> <max_speed> <gait>
-
-    Teensy rx:   STATUS <x> <y> <theta> <pitch> <roll> <fallen>
-
-    Reflex tx:   HALT
-   (immediate, no args)
-    Reflex tx:   EMERGENCY_PARK
-
-    Teensy rx:   ACK<cmd>
-
-Baud rate: 921600 (Teensy can handle this easily)
-Runs: async loop on Jetson, dedicated parse on Teensy.
+Sends NECK commands. Receives STATUS.
+Uses pyserial. Thread-safe.
 """
 
-import asyncio
-import serial  # type: ignore[import]
-from dataclasses import dataclass
-from typing import Callable, Optional
+import threading
+import time
+from typing import Callable, Dict, Optional
 
-
-@dataclass
-class TeensyStatus:
-    x_m: float
-    y_m: float
-    yaw_rad: float
-    pitch_deg: float
-    roll_deg: float
-    fallen: bool
+import serial
 
 
 class SerialLink:
-    """Non-blocking serial link to Teensy 4.1."""
+    """Talk to Teensy over USB Serial (CDC).
+
+    Protocol line-based:
+        → NECK <pan_deg> <tilt_deg> <speed_dps>
+        ← ACK NECK pan=... tilt=...
+        ← STATUS pan=... tilt=... uptime=...
+
+    Thread-safe: call send_neck() from any thread.
+    """
+
+    NEUTRAL_PAN = 0.0
+    NEUTRAL_TILT = 5.0
 
     def __init__(
         self,
         port: str = "/dev/ttyACM0",
         baud: int = 921600,
-        on_status: Optional[Callable[[TeensyStatus], None]] = None,
+        on_status: Optional[Callable[[dict], None]] = None,
     ):
         self.port = port
         self.baud = baud
         self.on_status = on_status
-        self._ser: Optional[serial.Serial] = None
-        self._running = False
 
+        self._ser: Optional[serial.Serial] = None
+        self._connected = False
+        self._running = False
+        self._thread: Optional[threading.Thread] = None
+        self._lock = threading.Lock()
+
+        self._last_status: Dict[str, float] = {}
+        self._last_neck_command = (self.NEUTRAL_PAN, self.NEUTRAL_TILT)
+
+    # ── Lifecycle ────────────────────────────────────────────
     def connect(self) -> bool:
         try:
-            self._ser = serial.Serial(self.port, self.baud, timeout=0.05)
-            return True
-        except serial.SerialException:
-            return False
+            self._ser = serial.Serial(
+                port=self.port,
+                baudrate=self.baud,
+                bytesize=serial.EIGHTBITS,
+                parity=serial.PARITY_NONE,
+                stopbits=serial.STOPBITS_ONE,
+                timeout=0.5,
+                write_timeout=1.0,
+            )
+            time.sleep(0.05)  # let USB serial settle
+            if self._ser.is_open:
+                self._connected = True
+                self._running = True
+                self._thread = threading.Thread(target=self._read_loop, daemon=True)
+                self._thread.start()
+                print(f"[SerialLink] Opened {self.port} @ {self.baud}")
+                return True
+        except serial.SerialException as e:
+            print(f"[SerialLink] Could not open {self.port}: {e}")
+        return False
 
     def disconnect(self) -> None:
-        if self._ser:
-            self._ser.close()
-            self._ser = None
         self._running = False
+        if self._thread:
+            self._thread.join(timeout=1.0)
+        if self._ser:
+            try:
+                self._ser.close()
+            except Exception:
+                pass
+        self._connected = False
+        print("[SerialLink] Disconnected.")
 
-    def send_target(self, x_m: float, y_m: float, yaw_rad: float, max_speed: float, gait: str) -> None:
-        if self._ser and self._ser.is_open:
-            msg = f"TARGET {x_m:.4f} {y_m:.4f} {yaw_rad:.4f} {max_speed:.3f} {gait}
-"
-            self._ser.write(msg.encode())
+    # ── Commands ───────────────────────────────────────────────
+    def send_neck(self, pan_deg: float, tilt_deg: float, speed_dps: float = 30.0, hold_ms: int = 500) -> bool:
+        """Send a neck pan/tilt command. Thread-safe."""
+        if not self._connected or not self._ser:
+            return False
+        cmd = f"NECK {pan_deg:.1f} {tilt_deg:.1f} {speed_dps:.1f} {hold_ms}\r\n"
+        with self._lock:
+            try:
+                self._ser.write(cmd.encode())
+                self._ser.flush()
+                self._last_neck_command = (pan_deg, tilt_deg)
+                return True
+            except serial.SerialException as e:
+                print(f"[SerialLink] Write error: {e}")
+                self._connected = False
+        return False
 
-    def send_halt(self) -> None:
-        if self._ser and self._ser.is_open:
-            self._ser.write(b"HALT
-")
+    def send_halt(self) -> bool:
+        return self.send_neck(
+            self._last_neck_command[0],
+            self._last_neck_command[1],
+            speed_dps=5.0,
+            hold_ms=2000,
+        )
 
-    def send_emergency_park(self) -> None:
-        if self._ser and self._ser.is_open:
-            self._ser.write(b"EMERGENCY_PARK
-")
+    def send_ping(self) -> bool:
+        if not self._connected or not self._ser:
+            return False
+        with self._lock:
+            try:
+                self._ser.write(b"PING\r\n")
+                self._ser.flush()
+                return True
+            except serial.SerialException:
+                self._connected = False
+        return False
 
-    def read_status(self) -> Optional[TeensyStatus]:
-        if not self._ser or not self._ser.is_open:
-            return None
-        raw = self._ser.readline()
-        if not raw:
-            return None
-        try:
-            parts = raw.decode().strip().split()
-            if len(parts) >= 6 and parts[0] == "STATUS":
-                return TeensyStatus(
-                    x_m=float(parts[1]),
-                    y_m=float(parts[2]),
-                    yaw_rad=float(parts[3]),
-                    pitch_deg=float(parts[4]),
-                    roll_deg=float(parts[5]),
-                    fallen=parts[6].lower() == "true" if len(parts) > 6 else False,
-                )
-        except (ValueError, IndexError):
+    def get_status(self) -> Dict[str, float]:
+        """Latest STATUS from Teensy."""
+        return self._last_status.copy()
+
+    # ── Internal read loop ───────────────────────────────────
+    def _read_loop(self) -> None:
+        buffer = bytearray()
+        while self._running and self._ser:
+            try:
+                data = self._ser.read(256)
+                if data:
+                    buffer.extend(data)
+                    while b"\n" in buffer or b"\r" in buffer:
+                        line, _, buffer = buffer.partition(b"\n")
+                        if not line:
+                            line, _, buffer = buffer.partition(b"\r")
+                        if line:
+                            self._parse_line(line.decode("ascii", errors="replace").strip())
+            except serial.SerialException:
+                time.sleep(0.5)
+            time.sleep(0.001)
+
+    def _parse_line(self, line: str) -> None:
+        if line.startswith("STATUS "):
+            # STATUS pan=0.0 tilt=5.0 uptime=12345
+            parts = line[7:].split()
+            status = {}
+            for p in parts:
+                if "=" in p:
+                    k, v = p.split("=", 1)
+                    try:
+                        status[k] = float(v)
+                    except ValueError:
+                        status[k] = v
+            self._last_status = status
+            if self.on_status:
+                try:
+                    self.on_status(status)
+                except Exception:
+                    pass
+        elif line.startswith("ACK "):
+            # ACK NECK pan=... tilt=...
             pass
-        return None
-
-    async def status_loop(self) -> None:
-        """Async coroutine that reads status lines and fires callback."""
-        self._running = True
-        while self._running:
-            status = self.read_status()
-            if status and self.on_status:
-                self.on_status(status)
-            await asyncio.sleep(0.01)  # 100 Hz read
-
-    async def send_heartbeat(self) -> None:
-        """Periodic heartbeat to detect Teensy disconnect."""
-        while self._running:
-            if self._ser and self._ser.is_open:
-                self._ser.write(b"PING
-")
-            await asyncio.sleep(1.0)
+        elif line.startswith("BOOT ") or line == "READY":
+            print(f"[SerialLink] Teensy: {line}")

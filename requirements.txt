@@ -1,35 +1,39 @@
-# Core
+# Teela Brain 5 — Python Dependencies
+# ==================================
+# Install with: pip install -r requirements.txt
+
+# ── Core Scientific ──
 numpy>=1.24.0
 opencv-python>=4.8.0
-torch>=2.1.0
-transformers>=4.36.0
 pillow>=10.0.0
-websockets>=12.0
-pyserial>=3.5
-pyyaml>=6.0
 scipy>=1.11.0
-schedule>=1.2.0
-requests>=2.31.0
-# Gesture & Pose
-mediapipe
 
-# Voice
-# pyttsx3
-# edge-tts
-# openai-whisper
-
-# Personality & Social
-# (pure Python, no extra deps)
-
-# Behavior
-# (pure Python)
-
-
-# Jetson extras (install with --index-url for Jetson wheels)
+# ── ML / Vision ──
+torch>=2.1.0
 torchvision>=0.16.0
 onnx>=1.15.0
+transformers>=4.36.0
 
-# Dev
+# ── Perception ──
+mediapipe>=0.10.0          # Human pose + pointing detection
+# vjepa (optional, slow on Jetson): pip install vjepa
+
+# ── Communication ──
+pyserial>=3.5              # Teensy USB Serial
+websockets>=12.0           # Optional WebSocket bridge
+
+# ── Voice / Audio ──
+# sounddevice>=0.4         # Live microphone capture (install if using real mic)
+# edge-tts>=6.0             # Cloud TTS (install if using aplay/speaker mode)
+# openai-whisper            # Local STT (install if running whisper server on Jetson)
+# pyttsx3                   # Offline TTS (install if preferred over edge-tts)
+
+# ── Config / Utils ──
+pyyaml>=6.0
+schedule>=1.2.0
+requests>=2.31.0
+
+# ── Dev / Testing ──
 pytest>=7.4.0
 pytest-asyncio>=0.21.0
 black>=23.7.0
