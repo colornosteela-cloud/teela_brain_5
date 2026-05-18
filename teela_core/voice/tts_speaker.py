@@ -211,7 +211,7 @@ class SpeakerTTS:
                 cmd = [
                     "gst-launch-1.0", "filesrc", f"location={tmp_path}",
                     "!", "decodebin", "!", "audioconvert", "!", "audioresample",
-                    "!", "alsasink", f"device={self.output_device}",
+                    "!", "autoaudiosink",
                 ]
             else:
                 # Use playbin with default PulseAudio/ALSA sink
