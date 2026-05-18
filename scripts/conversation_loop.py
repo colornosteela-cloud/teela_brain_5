@@ -16,6 +16,9 @@ Key bindings (from keyboard if no microphone):
     Ctrl+C → graceful shutdown
 """
 
+import sys, os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
 import argparse
 import base64
 import io
@@ -97,56 +100,73 @@ class TeelaRuntimeMind:
 
         self.camera: Optional[StereoCamera] = None
         if self.capabilities["eyes"]:
-            cam_cfg = hw.get("camera", {})
-            self.camera = StereoCamera(
-                primary_device=cam_cfg.get("primary_index", 0),
-                secondary_device=cam_cfg.get("secondary_index"),
-                width=cam_cfg.get("width", 640),
-                height=cam_cfg.get("height", 480),
-                fps=cam_cfg.get("fps", 15),
-            )
+            try:
+                cam_cfg = hw.get("camera", {})
+                self.camera = StereoCamera(
+                    primary_device=cam_cfg.get("primary_index", 0),
+                    secondary_device=cam_cfg.get("secondary_index"),
+                    width=cam_cfg.get("width", 640),
+                    height=cam_cfg.get("height", 480),
+                    fps=cam_cfg.get("fps", 15),
+                )
+                print("[Hardware] Camera initialized")
+            except Exception as e:
+                print(f"[Hardware] Camera unavailable: {e} — continuing without eyes")
+                self.capabilities["eyes"] = False
 
         self.scene = SceneUnderstanding()
         self.pointing = PointingSceneIntegrator()
 
         # ── Hardware: Serial / Neck ────────────────────────
-        self.serial = SerialLink(
-            port=hw.get("serial", {}).get("port", "/dev/ttyACM0"),
-            baud=hw.get("serial", {}).get("baud", 921600),
-            on_status=self._on_telemetry,
-        )
+        self.serial = None
+        try:
+            self.serial = SerialLink(
+                port=hw.get("serial", {}).get("port", "/dev/ttyACM0"),
+                baud=hw.get("serial", {}).get("baud", 921600),
+                on_status=self._on_telemetry,
+            )
+            print("[Hardware] Serial/Neck initialized")
+        except Exception as e:
+            print(f"[Hardware] Serial/Neck unavailable: {e} — continuing without neck")
+            self.capabilities["neck"] = False
 
         # ── Hardware: Microphone / STT ────────────────
         self.mic = None
         self.wake_detector = None
         if self.capabilities["ears"]:
-            mic_cfg = hw.get("microphone", {})
-            voice_cfg = config.get("voice", {})
+            try:
+                mic_cfg = hw.get("microphone", {})
+                voice_cfg = config.get("voice", {})
 
-            # Choose STT backend
-            stt_endpoint = mic_cfg.get("stt_endpoint")
-            if mic_cfg.get("stt_local", True) and not stt_endpoint:
-                stt_backend = "whisper"  # local GPU STT
-            else:
-                stt_backend = "endpoint"
+                # Choose STT backend
+                stt_endpoint = mic_cfg.get("stt_endpoint")
+                if mic_cfg.get("stt_local", True) and not stt_endpoint:
+                    stt_backend = "whisper"  # local GPU STT
+                else:
+                    stt_backend = "endpoint"
 
-            self.mic = MicSTT(
-                stt_endpoint=stt_endpoint,
-                stt_backend=stt_backend,
-                whisper_model=mic_cfg.get("stt_model", "base"),
-                samplerate=mic_cfg.get("samplerate", 16000),
-            )
-            self._pending_transcript: Optional[str] = None
-
-            # Wake word
-            if voice_cfg.get("wakeword_enabled", True):
-                from teela_core.voice.wakeword import WakeWordDetector
-                self.wake_detector = WakeWordDetector(
-                    backend=voice_cfg.get("wakeword_type", "energy"),
-                    sensitivity=voice_cfg.get("wakeword_sensitivity", 0.7),
+                self.mic = MicSTT(
+                    stt_endpoint=stt_endpoint,
+                    stt_backend=stt_backend,
+                    whisper_model=mic_cfg.get("stt_model", "base"),
+                    samplerate=mic_cfg.get("samplerate", 16000),
                 )
-                self.mic.set_wake_word_detector(self.wake_detector)
-                self.mic.set_wake_callback(self._on_wake_word)
+                self._pending_transcript: Optional[str] = None
+
+                # Wake word
+                if voice_cfg.get("wakeword_enabled", True):
+                    from teela_core.voice.wakeword import WakeWordDetector
+                    self.wake_detector = WakeWordDetector(
+                        backend=voice_cfg.get("wakeword_type", "energy"),
+                        sensitivity=voice_cfg.get("wakeword_sensitivity", 0.7),
+                    )
+                    self.mic.set_wake_word_detector(self.wake_detector)
+                    self.mic.set_wake_callback(self._on_wake_word)
+                print("[Hardware] Microphone STT initialized")
+            except Exception as e:
+                print(f"[Hardware] Microphone unavailable: {e} — continuing without ears")
+                self.capabilities["ears"] = False
+                self.mic = None
 
         # ── Hardware: Speaker / TTS ────────────────────
         speak_cfg = hw.get("speaker", {})
@@ -215,10 +235,10 @@ class TeelaRuntimeMind:
             print("[Startup] Camera capture thread started.")
 
         # Serial
-        if not self.serial.connect():
+        if self.serial and not self.serial.connect():
             print("[Startup] WARNING: Serial not connected. Neck will not move until Teensy is plugged in.")
             print("           You can still run the brain — just type 'connect' later.")
-        else:
+        elif self.serial:
             time.sleep(0.5)
             self.serial.send_ping()
             print("[Startup] Serial connected. Teensy ping sent.")
@@ -239,7 +259,10 @@ class TeelaRuntimeMind:
         print("\n✅ Teela is LIVE.")
         print("   Eyes:    " + ("OK" if self.camera else "OFF"))
         print("   Ears:    " + ("OK" if self.mic else "OFF"))
-        print("   Neck:    " + ("OK" if self.serial._connected else "OFF (Teensy not detected)"))
+        neck_status = "OFF (Teensy not detected)"
+        if self.serial:
+            neck_status = "OK" if self.serial._connected else "OFF (Teensy not detected)"
+        print("   Neck:    " + neck_status)
         print("   Cloud:   " + ("Kimi API" if self.cloud.api_key else "LOCAL / no key"))
         print()
         return True
@@ -250,7 +273,8 @@ class TeelaRuntimeMind:
             self.camera.stop()
         if self.mic:
             self.mic.stop()
-        self.serial.disconnect()
+        if self.serial:
+            self.serial.disconnect()
         print("[Shutdown] Teela is asleep.")
 
     # ── Main Loop ────────────────────────────────────────
@@ -391,7 +415,7 @@ class TeelaRuntimeMind:
         self._current_neck_cmd = neck_cmd
 
         # Send to Teensy
-        if self.serial._connected:
+        if self.serial and self.serial._connected:
             self.serial.send_neck(
                 neck_cmd.pan_deg,
                 neck_cmd.tilt_deg,
@@ -414,7 +438,7 @@ class TeelaRuntimeMind:
             pan_deg=0.0, tilt_deg=5.0, speed_dps=80.0,
             hold_s=0.5, reason="wake_word_alert"
         )
-        if self.serial._connected:
+        if self.serial and self.serial._connected:
             self.serial.send_neck(
                 self._current_neck_cmd.pan_deg,
                 self._current_neck_cmd.tilt_deg,
