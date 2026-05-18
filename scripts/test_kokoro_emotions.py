@@ -52,11 +52,11 @@ print()
 # Kokoro has native emotion tags! These are baked into the model.
 EMOTIONS = [
     ("Hey, I'm Teela. Nice to meet you.", "😊  NEUTRAL", None),
-    ("<laugh>Hey there! I'm so happy to see you!</laugh>", "😄  HAPPY", "laugh"),
-    ("Oh my gosh! You scared me!</gasp>", "😲  SURPRISED", "gasp"),
-    ("I have a secret... come closer... don't tell anyone.", "🤫  WHISPERING", "whisper"),
+    ("Hey there! I'm so happy to see you! Wow!", "😄  HAPPY", "laugh"),
+    ("Oh my gosh! You scared me! Ah!", "😲  SURPRISED", "gasp"),
+    ("Psst... come closer... I have a secret to tell you...", "🤫  WHISPERING", "whisper"),
     ("No way! That is NOT fair! I can't believe this!", "😡  ANGRY", "shout"),
-    ("Oh... I guess that didn't work out... maybe next time.", "😢  SAD", "sigh"),
+    ("Oh... I guess that didn't work out... maybe next time...", "😢  SAD", "sigh"),
     ("Huh... I wonder what's inside that box over there...", "🤔  CURIOUS", None),
     ("Yes! I did it! I'm so proud of myself right now!", "💪  PROUD", "laugh"),
 ]
@@ -76,7 +76,10 @@ def play_wav(path: str) -> None:
 
 # ── Generate and play each emotion ──────────────────────────
 print("🎧  Playing each emotion... (press Ctrl+C to skip)\n")
-pipe = KPipeline(lang_code='a')  # 'a' = American English
+pipe = KPipeline(lang_code='a', repo_id='hexgrad/Kokoro-82M')
+VOICE = "af_heart"  # Young female voice — perfect for Teela
+print(f"    Voice: {VOICE}")
+print()
 
 for i, (text, label, tag) in enumerate(EMOTIONS, 1):
     print(f"Test {i}/{len(EMOTIONS)} — {label}")
@@ -84,7 +87,7 @@ for i, (text, label, tag) in enumerate(EMOTIONS, 1):
 
     wav_path = f"/tmp/teela_kokoro_{i:02d}.wav"
     start = time.time()
-    for j, (graphemes, phonemes, audio) in enumerate(pipe(text)):
+    for j, (graphemes, phonemes, audio) in enumerate(pipe(text, voice=VOICE)):
         sf.write(wav_path, audio, 24000)
         break
     elapsed = (time.time() - start) * 1000
