@@ -87,7 +87,8 @@ Your body is a work in progress. Currently you only have a neck (pan/tilt).
             # Vision: only if model supports it ( kimi-k2.6 does )
             content = [{"type": "text", "text": user_message}]
             for img_b64 in images:
-                content.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{img_b64.decode()}"}})
+                img_str = img_b64.decode() if isinstance(img_b64, bytes) else img_b64
+                content.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{img_str}"}})
             messages[1]["content"] = content
 
         payload = json.dumps({
