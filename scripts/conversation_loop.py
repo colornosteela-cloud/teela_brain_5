@@ -353,7 +353,14 @@ class TeelaRuntimeMind:
 
         # ── 3. CLOUD REASONING (if user spoke or new scene data) ──
         cloud_reply = ""
-        if should_speak or self._tick_count % 30 == 0:  # idle check every ~3s
+        behavior_cfg = self.config.get("behavior", {})
+        idle_enabled = behavior_cfg.get("idle_enabled", True)
+        idle_interval = behavior_cfg.get("idle_check_interval", 30.0)
+        tick_hz = 10.0  # defined in run()
+        ticks_per_idle = max(1, int(idle_interval * tick_hz))
+        is_idle_tick = idle_enabled and (self._tick_count % ticks_per_idle == 0)
+
+        if should_speak or is_idle_tick:
             # Compose context for the LLM
             context_parts = []
             context_parts.append(f"Current emotion: {emotion_state.describe()}")

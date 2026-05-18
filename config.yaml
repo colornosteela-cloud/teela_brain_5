@@ -98,7 +98,7 @@ voice:
   #                   Use for special moments, not real-time chat.
   #                   Install: pip install chatterbox-tts
   #   "stdout"     → Text only, no audio (for headless testing)
-  tts_engine: edge_tts       # edge_tts | chatterbox | stdout
+  tts_engine: chatterbox       # edge_tts | chatterbox | stdout
   voices_dir: voices/jade_cloned  # For chatterbox mode: path to cloned voices
 
   # Edge TTS settings (FAST real-time conversations!)
@@ -150,7 +150,7 @@ emotional_state:
 # Proactive behaviors
 behavior:
   idle_check_interval: 30.0    # seconds between idle-behavior triggers
-  idle_enabled: true
+  idle_enabled: false
   curiosity_enabled: true
   social_attention_enabled: true
   max_idle_duration: 300.0   # seconds before Teela becomes "bored"
