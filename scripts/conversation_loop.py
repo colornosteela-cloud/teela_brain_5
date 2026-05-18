@@ -320,7 +320,7 @@ class TeelaRuntimeMind:
         if frame is not None:
             self._scene_state = self.scene.process_frame(frame)
             self._scene_state = self.pointing.update_scene_state(frame, self._scene_state)
-            scene_description = self._scene_state.json_description or "unknown scene"
+            scene_description = self._scene_state.to_json() if self._scene_state else "unknown scene"
 
             # Extract pointing
             if self._scene_state.pointed_object:
