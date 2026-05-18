@@ -136,15 +136,13 @@ Your body is a work in progress. Currently you only have a neck (pan/tilt).
         return LLMResponse(text="[No reply from LLM]", raw=body)
 
     def _chat_ollama(self, messages: List[dict], t0: float) -> LLMResponse:
-        url = f"{self.api_base}/api/chat"
+        """Ollama OpenAI-compatible /v1/chat/completions endpoint."""
+        url = f"{self.api_base}/v1/chat/completions"
         payload = json.dumps({
             "model": self.model,
             "messages": messages,
-            "stream": False,
-            "options": {
-                "temperature": self.temperature,
-                "num_predict": self.max_tokens,
-            },
+            "temperature": self.temperature,
+            "max_tokens": self.max_tokens,
         }).encode()
         req = urllib.request.Request(
             url,
@@ -152,19 +150,7 @@ Your body is a work in progress. Currently you only have a neck (pan/tilt).
             headers={"Content-Type": "application/json"},
             method="POST",
         )
-        with urllib.request.urlopen(req, timeout=self.timeout_s) as resp:
-            body = json.loads(resp.read().decode())
-        latency = (time.time() - t0) * 1000
-        if "message" in body:
-            msg = body["message"]
-            return LLMResponse(
-                text=msg.get("content", "").strip(),
-                latency_ms=latency,
-                tokens_used=body.get("prompt_eval_count", 0) + body.get("eval_count", 0),
-                finish_reason="stop" if not body.get("done_reason") else body["done_reason"],
-                raw=body,
-            )
-        return LLMResponse(text="[No reply from Ollama]", raw=body)
+        return self._chat_openai(req, t0)
 
     def quick_reply(self, prompt: str) -> str:
         """Simple interface: text in, text out."""

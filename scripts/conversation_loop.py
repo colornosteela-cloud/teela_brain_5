@@ -369,7 +369,7 @@ class TeelaRuntimeMind:
             images = []
             if frame is not None and self.capabilities["eyes"]:
                 _, buf = cv2.imencode(".jpg", frame)
-                images.append([base64.b64encode(buf).decode()])
+                images.append(base64.b64encode(buf).decode())
 
             if should_speak:
                 prompt = f"The person just said: '{user_text}'. What do you say or do?"
@@ -379,7 +379,7 @@ class TeelaRuntimeMind:
             resp = self.cloud.chat(
                 prompt,
                 extra_system=extra_system,
-                images=images[0] if images else None,
+                images=[images[0]] if images else None,
             )
             cloud_reply = resp.text
             self._last_cloud_reply = cloud_reply
