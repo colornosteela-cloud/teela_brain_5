@@ -332,8 +332,18 @@ class TeelaRuntimeMind:
 
         # ── 4. SPEAK ──────────────────────────────────────
         if cloud_reply and cloud_reply.strip():
-            print(f"\n[Teela 🗣️]  {cloud_reply}")
-            self.speaker.speak(cloud_reply)
+            # Parse emotional voice tags: [EMOTION: happy] (etc.)
+            emotion = None
+            speak_text = cloud_reply.strip()
+            import re
+            emo_match = re.match(r'\[\s*EMOTION\s*:\s*(\w+)\s*\]\s*(.*)', speak_text, re.IGNORECASE)
+            if emo_match:
+                emotion = emo_match.group(1).lower().strip()
+                speak_text = emo_match.group(2).strip()
+                print(f"\n[Teela 🗣️ 💝 {emotion}]  {speak_text}")
+            else:
+                print(f"\n[Teela 🗣️ ]  {speak_text}")
+            self.speaker.speak(speak_text, emotion=emotion)
 
         # ── 5. EXPRESSION (neck) ──────────────────────────
         # Determine target person to look at
