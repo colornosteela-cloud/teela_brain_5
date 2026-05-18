@@ -33,6 +33,9 @@ class SceneState:
     safety_status: str = "nominal"  # nominal | caution | emergency
     pointed_at: Optional[dict] = None  # {"object_id": ..., "name": ..., "confidence": ..., "pixel_distance": ...}
     metadata: Dict[str, Any] = field(default_factory=dict)
+    emotional_state: Optional[Dict[str, Any]] = None  # PAD + discrete emotions
+    active_personality_seed: Optional[str] = None  # persona string for LLM
+    social_state: Optional[Dict[str, Any]] = None  # interaction mode, speaker, etc.
 
     def to_json(self, path: Path) -> None:
         """Serialize to scene_state.json consumable by cloud reasoning."""
