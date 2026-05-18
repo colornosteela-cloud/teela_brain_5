@@ -212,7 +212,59 @@ class EmotionEngine:
         if self.state.arousal < -0.2: return "sleepy"
         return "calm"
 
-    # --- Event constructors for common situations ---
+    # --- E-skin touch events ---
+    @staticmethod
+    def event_gentle_touch(zone_name: str, person_name: Optional[str] = None) -> EmotionalEvent:
+        return EmotionalEvent(
+            event_type="touch_gentle",
+            valence_impact=0.2,
+            arousal_impact=-0.1,
+            dominance_impact=-0.1,
+            target=person_name,
+            reason=f"Gentle touch on {zone_name}",
+        )
+
+    @staticmethod
+    def event_startling_touch(zone_name: str, intensity: str = "firm") -> EmotionalEvent:
+        return EmotionalEvent(
+            event_type="touch_startling",
+            valence_impact=-0.2,
+            arousal_impact=0.4,
+            dominance_impact=-0.2,
+            reason=f"Unexpected {intensity} pressure on {zone_name}",
+        )
+
+    @staticmethod
+    def event_unsafe_touch(zone_name: str, reason: str = "") -> EmotionalEvent:
+        return EmotionalEvent(
+            event_type="touch_unsafe",
+            valence_impact=-0.4,
+            arousal_impact=0.5,
+            dominance_impact=-0.3,
+            reason=f"Unsafe pressure on {zone_name}: {reason}",
+        )
+
+    @staticmethod
+    def event_pat_head(person_name: Optional[str] = None) -> EmotionalEvent:
+        return EmotionalEvent(
+            event_type="pat_head",
+            valence_impact=0.3,
+            arousal_impact=-0.2,
+            dominance_impact=-0.1,
+            target=person_name,
+            reason="Pat / stroke on head—calming gesture",
+        )
+
+    @staticmethod
+    def event_wave_tapped_shoulder(person_name: Optional[str] = None) -> EmotionalEvent:
+        return EmotionalEvent(
+            event_type="attention_tap",
+            valence_impact=0.1,
+            arousal_impact=0.2,
+            dominance_impact=0.0,
+            target=person_name,
+            reason="Tapped on shoulder—attention seeking",
+        )
     @staticmethod
     def event_greet(person_name: str) -> EmotionalEvent:
         return EmotionalEvent(

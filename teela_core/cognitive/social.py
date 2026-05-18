@@ -78,7 +78,7 @@ class SocialAwareness:
             del self.present_people[pid]
 
     def get_social_events(self) -> List[Dict]:
-        """Detect social events (greeting, someone leaving, etc.)."""
+        """Detect social events (greeting, someone leaving, touch events, etc.)."""
         events = []
         for pid, person in self.present_people.items():
             dist = (person.position_m[0]**2 + person.position_m[1]**2)**0.5
@@ -174,3 +174,30 @@ class SocialAwareness:
             if dist < self.rules.personal_space_m:
                 violations.append(pid)
         return violations
+
+    def handle_touch_event(self, touch_event: Dict) -> Optional[Dict]:
+        """Process a touch event from e-skin as a social signal.
+
+        Returns a social event dict or None if handled quietly.
+        """
+        zone = touch_event.get("zone", "")
+        intensity = touch_event.get("intensity", "none")
+        safety = touch_event.get("safety_level", "normal")
+
+        # Tapping shoulder = attention seeking
+        if "shoulder" in zone and intensity in ("light_touch", "touch"):
+            return {"type": "attention_tap", "zone": zone, "intensity": intensity}
+
+        # Pat on head = calming/affection
+        if zone in ("face.left", "face.right", "forehead", "cheek.left", "cheek.right") and intensity == "light_touch":
+            return {"type": "pat_head", "zone": zone, "intensity": intensity}
+
+        # Unsafe touch = serious, needs response
+        if safety == "unsafe":
+            return {"type": "unsafe_touch", "zone": zone, "intensity": intensity}
+
+        # Firm pressure during conversation = possible guidance/warning
+        if intensity == "firm_pressure" and self.interaction.mode in ("conversation", "task"):
+            return {"type": "guidance_touch", "zone": zone, "intensity": intensity}
+
+        return None

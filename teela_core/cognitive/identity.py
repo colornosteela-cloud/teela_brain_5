@@ -24,6 +24,12 @@ class BodyState:
     last_servo_health_check: float = 0.0
     any_servos_overheating: bool = False
     any_servos_stuck: bool = False
+    # E-skin body contact awareness
+    eskin_active_zones: List[str] = field(default_factory=list)  # zones currently touched
+    eskin_last_contact_zone: Optional[str] = None
+    eskin_last_contact_time: float = 0.0
+    eskin_unsafe_zones: List[str] = field(default_factory=list)  # zones with unsafe pressure
+    eskin_contact_count_today: int = 0
 
 
 @dataclass

@@ -7,6 +7,7 @@ Rules:
 - No blocking I/O
 - Pure geometry + sensor thresholds
 - Can HALT all motion instantly
+- Accepts emergency commands from e-skin (body touch → freeze)
 """
 
 import time
@@ -25,9 +26,10 @@ class SensorReading:
 
 @dataclass
 class ReflexCommand:
-    cmd: str  # HALT | SLOW | RESUME | EMERGENCY_PARK
+    cmd: str  # HALT | SLOW | RESUME | EMERGENCY_PARK | FREEZE
     reason: str
     timestamp: float = field(default_factory=time.time)
+    source: str = "ultrasonic"  # ultrasonic | eskin | imu | user
 
 
 class ReflexLayer:
@@ -40,13 +42,25 @@ class ReflexLayer:
         "tilt_max_deg": 25.0,
     }
 
+    FREEZE_DURATION_S = 1.5
+
     def __init__(self, callback: Optional[Callable[[ReflexCommand], None]] = None):
         self.callback = callback
         self._last_state = "running"
         self._consecutive_breaches = 0
+        self._frozen_until = 0.0
 
     def evaluate(self, sensor_readings: List[SensorReading]) -> ReflexCommand:
         """Evaluate all sensor readings and emit a reflex command."""
+        now = time.time()
+
+        # If e-skin has frozen us recently, stay frozen
+        if now < self._frozen_until:
+            cmd = ReflexCommand(cmd="FREEZE", reason="E-skin freeze active", source="eskin")
+            if self.callback:
+                self.callback(cmd)
+            return cmd
+
         min_dist = float("inf")
         max_tilt = 0.0  # degrees from vertical
         cliff_detected = False
@@ -79,3 +93,18 @@ class ReflexLayer:
         if self.callback:
             self.callback(cmd)
         return cmd
+
+    def handle_eskin_safety(self, safety_cmd: str, reason: str) -> None:
+        """Called by ESkinProcessor when an unsafe touch is detected.
+
+        Args:
+            safety_cmd: "FREEZE" or "SLOW"
+            reason: human-readable description
+        """
+        now = time.time()
+        if safety_cmd == "FREEZE":
+            self._frozen_until = now + self.FREEZE_DURATION_S
+            self._consecutive_breaches = 2  # triggers emergency state
+        # Also emit to immediate actuator control if callback present
+        if self.callback:
+            self.callback(ReflexCommand(cmd=safety_cmd, reason=reason, source="eskin"))

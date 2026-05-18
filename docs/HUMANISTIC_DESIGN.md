@@ -291,6 +291,124 @@ Teela does things **without being asked**:
 
 ---
 
+## Silicone Skin & Electronic Skin (E-Skin)
+
+### Philosophy
+
+Teela does not have a face with LED expressions. Instead, her entire body is wrapped in **soft silicone skin** embedded with **electronic skin sensors**. This is not cosmetic — it is her **tactile awareness**.
+
+The silicone skin serves multiple functions:
+- **Aesthetic**: She looks and feels less like exposed hardware and more like an embodied humanoid
+- **Safety**: Soft surface reduces injury risk during contact
+- **Proprioception**: She knows when and where she is being touched
+- **Social**: Touch is a primary human communication channel — patting, tapping, guiding
+
+### Sensor Layer Design
+
+#### Material
+- **Silicone outer**: Shore A 20-30 durometer, skin-tone or semi-transparent
+- **Embedded sensors**: Velostat pressure sheets + discrete FSRs under key zones
+- **Wiring**: Flexible silicone-coated micro-cables routed through channels in foam substrate
+
+#### Sensor Placement
+```
+face.left          face.right
+├─ cheek.left      └─ cheek.right
+├─ forehead
+├─ neck.front      neck.back
+│
+shoulder.left ──── shoulder.right
+│                    │
+arm.left.upper     arm.right.upper
+│                    │
+arm.left.lower     arm.right.lower
+│                    │
+hand.left.palm     hand.right.palm
+│           (back)         (back)
+│
+torso.front.upper ─ torso.back.upper
+torso.front.lower ─ torso.back.lower
+│
+hip.left ─ hip.right
+│
+leg.left.upper ──── leg.right.upper
+│                    │
+leg.left.lower     leg.right.lower
+│                    │
+foot.left ────────── foot.right
+```
+
+### Pressure Levels
+
+| Level | ADC Delta | What It Means |
+|-------|-----------|---------------|
+| `none` | 0-20 | No contact, just baseline noise |
+| `light_touch` | 20-80 | Feather touch, hand resting, accidental brush |
+| `touch` | 80-120 | Normal intentional contact |
+| `firm_pressure` | 120-300 | Guidance, holding, leaning |
+| `unsafe_pressure` | 300+ | Possible collision, fall, crush risk |
+
+### Context-Aware Touch Interpretation
+
+Teela does not treat all touch identically. Context changes meaning:
+
+| Touch | Context | Interpretation | Response |
+|-------|---------|----------------|----------|
+| Shoulder tap | Idle | Attention-seeking | "Yes?" + turn head |
+| Shoulder tap | Walking | Possible guidance | Slow down, look |
+| Head pat | Person present | Calming / affection | Lower arousal, lean slightly |
+| Head touch | Moving | Safety risk | Freeze neck movement immediately |
+| Firm torso | Task mode | Possible correction | Stop, ask "Should I not do that?" |
+| Unsafe back | Any | Collision or fall | Freeze all joints, emit alert |
+| Hand held | Conversation | Holding/requesting guidance | Match pace, look at person |
+
+### Safety Integration
+
+```
+Touch detected
+    → Identify zone
+    → Check adjacent moving joints
+    → If unsafe: FREEZE joint for 1.5s → emit to reflex_layer
+    → If firm during motion: SLOW → reduce joint speed
+    → If face touched during head motion: FREEZE neck immediately
+    → If gentle + no motion hazard: Acknowledge socially
+```
+
+### E-Skin → Emotional Response
+
+| Touch Type | PAD Impact | Emotional Effect |
+|------------|------------|------------------|
+| Gentle pat on head | V +0.3, A -0.2 | Calmed, trust ↑ |
+| Unexpected firm pressure | V -0.2, A +0.4 | Startled, alert |
+| Repeated shoulder tap | V +0.1, A +0.2 | Curious, attentive |
+| Unsafe pressure | V -0.4, A +0.5 | Anxious, fear ↑ |
+| No touch for hours | V -0.1, A -0.1 | Slight loneliness |
+
+### Calibration
+
+E-skin must be calibrated when:
+1. First installed (baseline per zone)
+2. After silicone skin replacement
+3. If ambient temperature changes significantly
+4. If sensor drift is detected (false positives)
+
+Calibration is user-triggered via:
+```bash
+python3 -m scripts.calibrate_eskin
+```
+
+### Files
+
+| File | Role |
+|------|------|
+| `teela_core/eskin/__init__.py` | Package docstring |
+| `teela_core/eskin/eskin.py` | Sensor processing, classification, safety |
+| `teela_core/eskin/body_map.py` | Body zone definitions (30+ zones) |
+| `scripts/calibrate_eskin.py` | Calibrate e-skin baselines |
+| `tests/test_eskin.py` | E-skin unit tests |
+
+---
+
 ## File Index
 
 | File | Purpose |
@@ -308,6 +426,9 @@ Teela does things **without being asked**:
 | `teela_core/voice/stt.py` | Speech-to-text |
 | `teela_core/voice/tts.py` | Text-to-speech |
 | `teela_core/voice/wakeword.py` | Wake word detection |
+| `teela_core/eskin/body_map.py` | E-skin body zone definitions |
+| `teela_core/eskin/eskin.py` | E-skin sensor processing + safety |
+| `scripts/calibrate_eskin.py` | Calibrate e-skin baselines |
 | `scripts/conversation_loop.py` | Main integration loop |
 | `scripts/person_learn.py` | Teach Teela about people |
 | `scripts/emote_demo.py` | Test emotional expressions |
