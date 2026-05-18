@@ -267,14 +267,24 @@ python3 -c "import sounddevice as sd; print(sd.query_devices())"
 ### 5. Wake Word Test
 
 ```bash
-# Test with energy threshold (no dependencies, any mic)
+# Quick health check: does the mic detect anything?
 python3 -m teela_core.voice.wakeword --backend energy --duration 10
-# Speak "Teela" or make a loud noise — you should see 🔔 Wake word detected!
+# Speak "Teela" or make a loud noise
+# Expected: 🔔 WAKE WORD DETECTED
 
-# Test with Porcupine (best, requires pip install pvporcupine)
-# First: get free access_key at https://console.picovoice.ai
-# Then:
-python3 -m teela_core.voice.wakeword --backend porcupine --duration 10
+# See live audio levels for calibration:
+python3 -m teela_core.voice.wakeword --backend energy --duration 10 --rms
+# Expected: [00] RMS 0.0234 ████████████ (bars while you speak)
+# If all bars are empty, your mic isn't capturing audio.
+
+# Test the COMPLETE pipeline (mic → wake word → STT → text):
+python3 -m scripts.test_voice --duration 30
+# Expected output:
+#   [MicSTT] Mic stream started at ...
+#   [MicSTT] Say 'Hey Teela' to wake me!
+#   ...........................          (dots while idle)
+#   [RESULT] 🔔 Wake word detected!
+#   [RESULT] You said: "hello teela"
 ```
 
 ### 6. Full Voice Conversation Test
@@ -290,6 +300,12 @@ python3 -m teela_core.voice.wakeword --backend porcupine --duration 10
 #     speaker:
 #       mode: aplay             # or stdout for headless
 #       play_beep: true
+#     microphone:
+#       stt_local: true          # use local Whisper
+#       stt_model: "base"        # tiny (fast, less accurate) | base | small
+#
+# Install Whisper (one-time, ~74MB for 'base'):
+#   pip install faster-whisper
 
 python3 -m scripts.conversation_loop
 ```
@@ -297,9 +313,23 @@ python3 -m scripts.conversation_loop
 You should hear:
 1. A startup beep
 2. "Hello. I'm Teela. My eyes are open and I'm listening."
-3. `[MicSTT] Mic stream started at 16000 Hz — waiting for 'Hey Teela'`
-4. Say **"Hey Teela"** → hear a confirmation beep
-5. Say **"What do you see?"** → Teela responds with a caption from her camera
+3. `[MicSTT] Mic stream started at 16000 Hz`
+4. `[MicSTT] Say 'Hey Teela' to wake me!`
+5. Say **"Hey Teela"** → hear a confirmation beep
+6. Say **"What do you see?"** → Teela responds
+
+If nothing happens:
+```bash
+# 1. Test just the mic + wake word (no STT needed)
+python3 -m scripts.test_voice --no-whisper --duration 20
+
+# 2. See if audio levels are normal
+python3 -m teela_core.voice.wakeword --rms --duration 10
+
+# 3. Check mic is actually recording
+arecord -d 3 /tmp/test.wav --format=S16_LE --rate=16000 --channels=1
+aplay /tmp/test.wav   # Can you hear your voice?
+```
 
 ---
 

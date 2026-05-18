@@ -111,8 +111,18 @@ class TeelaRuntimeMind:
         if self.capabilities["ears"]:
             mic_cfg = hw.get("microphone", {})
             voice_cfg = config.get("voice", {})
+
+            # Choose STT backend
+            stt_endpoint = mic_cfg.get("stt_endpoint")
+            if mic_cfg.get("stt_local", True) and not stt_endpoint:
+                stt_backend = "whisper"  # local GPU STT
+            else:
+                stt_backend = "endpoint"
+
             self.mic = MicSTT(
-                stt_endpoint=mic_cfg.get("stt_endpoint"),
+                stt_endpoint=stt_endpoint,
+                stt_backend=stt_backend,
+                whisper_model=mic_cfg.get("stt_model", "base"),
                 samplerate=mic_cfg.get("samplerate", 16000),
             )
             self._pending_transcript: Optional[str] = None
@@ -122,6 +132,7 @@ class TeelaRuntimeMind:
                 from teela_core.voice.wakeword import WakeWordDetector
                 self.wake_detector = WakeWordDetector(
                     backend=voice_cfg.get("wakeword_type", "energy"),
+                    sensitivity=voice_cfg.get("wakeword_sensitivity", 0.7),
                 )
                 self.mic.set_wake_word_detector(self.wake_detector)
                 self.mic.set_wake_callback(self._on_wake_word)

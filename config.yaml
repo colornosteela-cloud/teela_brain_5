@@ -34,11 +34,24 @@ hardware:
     #   python3 -m teela_core.perception.camera --primary 0 --secondary 1
 
   microphone:
-    device: "default"      # ALSA device name
-    samplerate: 16000
-    block_duration_ms: 1000
-    silence_duration_ms: 1500
-    stt_endpoint: "http://localhost:8000/transcribe"  # local whisper or cloud
+    device: "default"      # ALSA device name. Check: arecord -l
+    samplerate: 16000      # Whisper expects 16kHz mono
+
+    # ── STT Backend ─────────────────────────────
+    # Recommendations (Jetson Orin Nano):
+    #   "whisper_local"  → faster-whisper runs ON the Jetson GPU
+    #                       No cloud latency. Private.
+    #                       Install: pip install faster-whisper
+    #                       Model sizes: tiny (39MB) < base (74MB) < small (244MB)
+    #   "cloud_endpoint" → Remote STT API (e.g., Deepgram, AssemblyAI)
+    #                       Requires subscription.
+    stt_local: true           # true = use local whisper, false = use stt_endpoint below
+    stt_model: "base"         # tiny | base | small | medium | large
+
+    # stt_endpoint: "http://localhost:8000/transcribe"  # custom endpoint if not local
+
+    block_duration_ms: 500    # audio buffer size (wake word block)
+    silence_duration_ms: 1500  # end-of-utterance silence
 
   speaker:
     mode: stdout           # options: stdout | aplay | edge_tts

@@ -5,13 +5,20 @@ Two modes:
     1. WAKE    → listening for "Hey Teela" (low power)
     2. ACTIVE  → full STT after wake word detected
 
-Falls back to keyboard input for testing.
+STT backends (in order of preference):
+    - whisper_local   → faster-whisper, runs on local GPU (Jetson Orin) — RECOMMENDED
+    - cloud_endpoint  → external STT via REST API
+    - keyboard        → fall back to typing (headless dev)
+
+Falls back to keyboard input if sounddevice unavailable.
 """
 
 import json
 import queue
 import threading
 import time
+import wave
+from io import BytesIO
 from typing import Callable, List, Optional
 
 import numpy as np
@@ -29,12 +36,16 @@ class MicSTT:
     def __init__(
         self,
         stt_endpoint: Optional[str] = None,
+        stt_backend: str = "whisper",        # "whisper" | "endpoint" | "keyboard"
+        whisper_model: str = "base",           # tiny / base / small / medium / large
         samplerate: int = 16000,
         block_duration_ms: int = 500,       # wake word processing block
         silence_duration_ms: int = 1500,     # end-of-utterance threshold
         max_active_duration_ms: int = 10000, # timeout after wake word
     ):
         self.endpoint = stt_endpoint
+        self.stt_backend = stt_backend
+        self.whisper_model_name = whisper_model
         self.samplerate = samplerate
         self.block_duration_ms = block_duration_ms
         self.silence_duration_ms = silence_duration_ms
@@ -53,11 +64,10 @@ class MicSTT:
         self._running = False
         self._thread: threading.Thread | None = None
         self._callback: Optional[Callable[[str], None]] = None
-        self._on_wake: Optional[Callable[[], None]] = None  # called when wake word fires
+        self._on_wake: Optional[Callable[[], None]] = None
 
         # State machine
         self._mode: str = "IDLE"  # IDLE | WAKE | ACTIVE
-        self._accumulated_audio: List[float] = []
         self._last_speech_time = 0.0
         self._voice_active = False
         self._active_start_time = 0.0
@@ -66,6 +76,15 @@ class MicSTT:
 
         self._wake_word_detector: Optional[object] = None
 
+        # Whisper lazy load
+        self._whisper_model = None
+        self._whisper_loaded = False
+
+        # VAD state
+        self._vad_threshold = 0.008  # typical whisper is ~0.005–0.02
+        self._vad_hang_frames = 0
+        self._vad_max_hang = 3      # blocks of silence before end-of-utterance
+
     def set_wake_word_detector(self, detector: object) -> None:
         """Inject a WakeWordDetector instance."""
         self._wake_word_detector = detector
@@ -73,6 +92,41 @@ class MicSTT:
     def set_wake_callback(self, fn: Callable[[], None]) -> None:
         """Called when wake word is detected (for beep / LED)."""
         self._on_wake = fn
+
+    # ── Whisper local STT ───────────────────────────────
+
+    def _load_whisper(self):
+        if self._whisper_loaded:
+            return
+        self._whisper_loaded = True
+        try:
+            import faster_whisper  # type: ignore[import]
+            print(f"[MicSTT] Loading Whisper '{self.whisper_model_name}' — this may take 20–60s...")
+            device = "cuda" if faster_whisper.utils._is_cuda_available() else "cpu"
+            model = faster_whisper.WhisperModel(
+                self.whisper_model_name,
+                device=device,
+                compute_type="float16" if device == "cuda" else "int8",
+            )
+            self._whisper_model = model
+            print(f"[MicSTT] Whisper ready on {device}.")
+        except ImportError:
+            print("[MicSTT] faster-whisper not installed.")
+        except Exception as e:
+            print(f"[MicSTT] Whisper load failed: {e}")
+
+    def _transcribe_whisper(self, audio_np: np.ndarray) -> str:
+        if self._whisper_model is None:
+            self._load_whisper()
+        if self._whisper_model is None:
+            return ""
+        try:
+            segments, _ = self._whisper_model.transcribe(audio_np, language="en")
+            text = " ".join(s.text for s in segments).strip()
+            return text
+        except Exception as e:
+            print(f"[MicSTT] Whisper transcription error: {e}")
+            return ""
 
     # ── Audio Callback ───────────────────────────────────
 
@@ -111,8 +165,12 @@ class MicSTT:
 
     def _process_idle(self, audio: np.ndarray, now: float) -> None:
         """In IDLE: pass audio to wake word detector."""
+        if self.stt_backend == "keyboard":
+            # Always-on keyboard
+            return
+
         if self._wake_word_detector is None:
-            # No wake word configured → always active (always-on listening)
+            # No wake word configured → always active
             self._mode = "ACTIVE"
             self._active_start_time = now
             self._stt_buffer.extend(audio.tolist())
@@ -125,74 +183,107 @@ class MicSTT:
             self._active_start_time = now
             self._voice_active = False
             self._last_speech_time = now
-            self._stt_buffer = audio.tolist().copy()  # keep the wake-word audio + start buffering
+            self._vad_hang_frames = 0
+            self._stt_buffer = audio.tolist().copy()
             if self._on_wake:
                 self._on_wake()
             print(f"[MicSTT] Wake word detected! Listening... (confidence={event.confidence:.2f})")
-        else:
-            # Still idle — just discard audio
-            pass
+        # else: discard audio silently (no print spam)
 
     def _process_active(self, audio: np.ndarray, now: float) -> None:
         """In WAKE/ACTIVE: buffer audio, detect silence, then flush to STT."""
         self._stt_buffer.extend(audio.tolist())
 
-        # RMS energy check for VAD
+        # VAD: track energy over time
         rms = float(np.sqrt(np.mean(audio.astype(np.float64) ** 2)))
-        threshold = 0.01  # above this = speech
 
-        if rms > threshold:
+        if rms > self._vad_threshold:
             self._voice_active = True
             self._last_speech_time = now
+            self._vad_hang_frames = 0
+        else:
+            self._vad_hang_frames += 1
 
         silence_duration = now - self._last_speech_time
         active_duration = now - self._active_start_time
+        hang_silence = self._vad_hang_frames * (self.block_duration_ms / 1000.0)
 
         # Flush conditions:
-        # 1. Silence after speech → end of utterance
+        # 1. Hangover silence after speech → end of utterance
         # 2. Max active duration exceeded → timeout
-        if (self._voice_active and silence_duration > self.silence_duration_ms / 1000.0):
-            self._flush_stt()
-            self._reset_to_idle()
-        elif active_duration > self.max_active_duration_ms / 1000.0:
+        should_flush = False
+        if self._voice_active and hang_silence > (self.silence_duration_ms / 1000.0):
+            should_flush = True
+        elif active_duration > (self.max_active_duration_ms / 1000.0):
             print("[MicSTT] Active timeout — returning to idle.")
-            self._flush_stt()
+            should_flush = True
+
+        if should_flush:
+            text = self._flush_stt()
+            if text and self._callback:
+                self._callback(text)
             self._reset_to_idle()
 
-    def _flush_stt(self) -> None:
+    def _flush_stt(self) -> str:
+        """Transcribe buffered audio, return recognized text (or empty string)."""
         if not self._stt_buffer:
-            return
+            return ""
 
-        # Send to STT endpoint
-        if self.endpoint and self._callback:
-            import struct, urllib.request
-            try:
-                pcm = struct.pack("f" * len(self._stt_buffer), *self._stt_buffer)
-                req = urllib.request.Request(
-                    self.endpoint,
-                    data=pcm,
-                    headers={"Content-Type": "audio/raw", "X-SampleRate": str(self.samplerate)},
-                    method="POST",
-                )
-                with urllib.request.urlopen(req, timeout=10) as resp:
-                    result = json.loads(resp.read().decode())
-                    text = result.get("text", "").strip()
-                    if text:
-                        self._callback(text)
-            except Exception as e:
-                print(f"[MicSTT] STT error: {e}")
+        audio_np = np.array(self._stt_buffer, dtype=np.float32)
+        dur = len(audio_np) / self.samplerate
+
+        if dur < 0.5:
+            print(f"[MicSTT] Too short ({dur:.1f}s). Ignoring.")
+            self._stt_buffer.clear()
+            return ""
+
+        print(f"[MicSTT] Transcribing {dur:.1f}s of audio...")
+
+        text = ""
+        if self.stt_backend == "whisper":
+            text = self._transcribe_whisper(audio_np)
+        elif self.endpoint:
+            text = self._transcribe_endpoint(audio_np)
         else:
-            # For testing without endpoint: just print what we captured
-            dur = len(self._stt_buffer) / self.samplerate
-            print(f"[MicSTT] Captured {dur:.1f}s of audio (no STT endpoint)")
+            # No STT configured
+            print(f"[MicSTT] No STT backend configured.")
+            print("         Options:")
+            print("           1. Install faster-whisper:  pip install faster-whisper")
+            print(f"           2. Set config: voice.stt_backend='whisper'")
+            print(f"           3. Set config: hardware.microphone.stt_endpoint=\"http://...\"")
+            print("         Audio captured but not transcribed.")
+
+        if text:
+            print(f"[MicSTT] Recognized: \"{text}\"")
 
         self._stt_buffer.clear()
+        return text
+
+    def _transcribe_endpoint(self, audio_np: np.ndarray) -> str:
+        import struct, urllib.request
+        if not self.endpoint:
+            return ""
+        try:
+            pcm = struct.pack("f" * len(audio_np), *audio_np)
+            req = urllib.request.Request(
+                self.endpoint,
+                data=pcm,
+                headers={"Content-Type": "audio/raw", "X-SampleRate": str(self.samplerate)},
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                result = json.loads(resp.read().decode())
+                return result.get("text", "").strip()
+        except Exception as e:
+            print(f"[MicSTT] STT endpoint error: {e}")
+            return ""
 
     def _reset_to_idle(self) -> None:
         self._mode = "IDLE"
         self._voice_active = False
+        self._vad_hang_frames = 0
         self._stt_buffer.clear()
-        print("[MicSTT] Returned to idle — waiting for wake word.")
+        print("[MicSTT] Returned to idle — waiting for 'Teela'.")
 
     # ── Public API ─────────────────────────────────────
 
@@ -201,7 +292,9 @@ class MicSTT:
         self._running = True
         self._mode = "IDLE"
 
-        if self._has_sounddevice:
+        if self.stt_backend == "keyboard":
+            print("[MicSTT] Keyboard mode — type to talk to Teela.")
+        elif self._has_sounddevice:
             self._stream = self.sd.RawInputStream(
                 samplerate=self.samplerate,
                 blocksize=self._block_samples,
@@ -210,7 +303,11 @@ class MicSTT:
                 callback=self._audio_callback,
             )
             self._stream.start()
-            print(f"[MicSTT] Mic stream started at {self.samplerate} Hz — waiting for 'Hey Teela'")
+
+            backend_msg = "whisper (local)" if self.stt_backend == "whisper" else (f"endpoint: {self.endpoint}" if self.endpoint else "⚠️ none (install faster-whisper)")
+            print(f"[MicSTT] Mic stream started at {self.samplerate} Hz")
+            print(f"[MicSTT] STT: {backend_msg}")
+            print(f"[MicSTT] Say 'Hey Teela' to wake me!")
         else:
             print("[MicSTT] No mic backend — type your input below.")
 
