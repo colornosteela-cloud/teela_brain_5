@@ -24,6 +24,43 @@ This guide helps you deploy Teela on the **Jetson Nano Orin** with her
 | IMU | ⬜ Future | MPU6050/BNO055 | Placeholder in config |
 | Ultrasonic | ⬜ Future | HC-SR04 | Placeholder in config |
 
+### 🔧 CSI Camera Setup (Jetson Nano Orin)
+
+If you are using **Raspberry Pi Camera v2/v3 (IMX219/IMX477)** connected via the
+dedicated **CSI/MIPI port** instead of a USB webcam, you must configure the camera
+interface before the Jetson can see it:
+
+```bash
+sudo /opt/nvidia/jetson-io/jetson-io.py
+```
+
+Then follow the on-screen prompts:
+1. **Configure header pins** → Select the **CSI/MIPI** option for your camera module
+2. Save and reboot when prompted
+3. After reboot, verify the camera is recognized:
+
+```bash
+# Check video device nodes (CSI cameras usually enumerate as /dev/video0 or /dev/video1)
+ls /dev/video*
+
+# Verify camera properties with v4l2
+v4l2-ctl --device=/dev/video0 --all | head -20
+
+# Quick capture test
+gst-launch-1.0 nvarguscamerasrc ! 'video/x-raw(memory:NVMM),width=1280,height=720,framerate=30/1' ! nvvidconv ! xvimagesink
+```
+
+**For IMX477 (High Quality Camera)**, you may need the
+`nvidia-l4t-jetson-multimedia-api` package and the correct overlay in
+`/boot/extlinux/extlinux.conf`. Modern JetPack 6.x should auto-detect IMX219
+out of the box.
+
+> ⚠️ **Important**: The OpenCV code in `teela_core/perception/camera.py` uses
+the standard V4L2 backend (`cv2.VideoCapture(0)`). CSI cameras work with
+this backend once the `jetson-io.py` configuration is saved and the device
+node exists. If you use multiple cameras, adjust the `camera.index` value
+in `config.yaml` accordingly (e.g., `0` for CSI, `1` for USB).
+
 ### Wiring: Servos → Teensy 4.1
 
 | Signal | Teensy Pin | Servo Wire |
