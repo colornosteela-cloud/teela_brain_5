@@ -184,6 +184,125 @@ Just type and press Enter — Teela will respond via text (or speaker if `aplay`
 
 ---
 
+## 🎤 Voice & Wake Word Setup
+
+### 1. Install Audio Dependencies
+
+```bash
+# Microphone input
+cd ~/teela_brain_5
+pip install sounddevice scipy
+
+# TTS (Microsoft Edge voices, cloud-based, great quality)
+pip install edge-tts
+
+# Optional: offline TTS (robotic but no network)
+# sudo apt install espeak
+
+# Optional: local wake word (fastest, offline)
+# pip install pvporcupine         # picovoice.ai, free for open-source
+# pip install openwakeword        # open source ONNX (heavier)
+```
+
+### 2. Test TTS (Choose Teela's Voice)
+
+```bash
+# List all available voices
+edge-tts --list-voices | grep "Neural"
+
+# Try Christopher (warm, friendly — recommended)
+edge-tts --text "Hello, I'm Teela. Nice to meet you." --voice "en-US-ChristopherNeural" --play
+
+# Try Nova (energetic, expressive)
+edge-tts --text "Hello, I'm Teela. Nice to meet you." --voice "en-US-NovaNeural" --play
+
+# Try Aria (calm, soft)
+edge-tts --text "Hello, I'm Teela. Nice to meet you." --voice "en-US-AriaNeural" --play
+```
+
+**Recommendation:** `en-US-ChristopherNeural` — warm and human-like. Set it in `config.yaml`:
+```yaml
+voice:
+  tts_voice: en-US-ChristopherNeural
+```
+
+### 3. Speaker Output Setup
+
+```bash
+# Check ALSA sees your speaker
+aplay -l | grep "card"
+
+# Set default volume
+amixer sset 'Master' 80%
+
+# Test sound
+speaker-test -t sine -f 880
+```
+
+If using a USB audio adapter (common on Jetson), check:
+```bash
+aplay -l
+```
+Set the right device in `config.yaml`:
+```yaml
+hardware:
+  speaker:
+    mode: aplay
+    output_device: hw:1,0    # change 1 to your USB card number
+    edge_tts_voice: en-US-ChristopherNeural
+    play_beep: true
+```
+
+### 4. Test Microphone
+
+```bash
+# Test mic input
+python3 -c "import sounddevice as sd; print(sd.query_devices())"
+
+# If your mic isn't default:
+# Check the device index and update config.yaml:
+#    hardware.microphone.device = "hw:2,0"
+```
+
+### 5. Wake Word Test
+
+```bash
+# Test with energy threshold (no dependencies, any mic)
+python3 -m teela_core.voice.wakeword --backend energy --duration 10
+# Speak "Teela" or make a loud noise — you should see 🔔 Wake word detected!
+
+# Test with Porcupine (best, requires pip install pvporcupine)
+# First: get free access_key at https://console.picovoice.ai
+# Then:
+python3 -m teela_core.voice.wakeword --backend porcupine --duration 10
+```
+
+### 6. Full Voice Conversation Test
+
+```bash
+# Make sure config.yaml has:
+#   voice:
+#     tts_voice: en-US-ChristopherNeural
+#     wakeword_enabled: true
+#     wakeword_type: energy     # or porcupine after install
+#
+#   hardware:
+#     speaker:
+#       mode: aplay             # or stdout for headless
+#       play_beep: true
+
+python3 -m scripts.conversation_loop
+```
+
+You should hear:
+1. A startup beep
+2. "Hello. I'm Teela. My eyes are open and I'm listening."
+3. `[MicSTT] Mic stream started at 16000 Hz — waiting for 'Hey Teela'`
+4. Say **"Hey Teela"** → hear a confirmation beep
+5. Say **"What do you see?"** → Teela responds with a caption from her camera
+
+---
+
 ## 🎙️ Try Pointing
 
 Teela can understand pointing right now — you just need a webcam

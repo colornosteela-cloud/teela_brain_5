@@ -23,10 +23,14 @@ pyserial>=3.5              # Teensy USB Serial
 websockets>=12.0           # Optional WebSocket bridge
 
 # ── Voice / Audio ──
-# sounddevice>=0.4         # Live microphone capture (install if using real mic)
-# edge-tts>=6.0             # Cloud TTS (install if using aplay/speaker mode)
-# openai-whisper            # Local STT (install if running whisper server on Jetson)
-# pyttsx3                   # Offline TTS (install if preferred over edge-tts)
+sounddevice>=0.4           # Live microphone capture (install if using real mic)
+edge-tts>=6.0              # Cloud TTS — Microsoft edge voices, zero GPU load
+# pvporcupine>=3.0         # Wake word "Teela" — picovoice.ai, free for open-source
+# openwakeword             # Open-source wake word — ONNX, ~50MB RAM
+# faster-whisper           # Local STT — runs on Jetson Orin Nano GPU
+# openai-whisper           # Alternative: OpenAI Whisper (heavier)
+# pyttsx3                  # Offline TTS — robotic but no network
+# espeak                   # Linux offline TTS via aplay
 
 # ── Config / Utils ──
 pyyaml>=6.0

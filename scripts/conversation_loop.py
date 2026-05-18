@@ -36,6 +36,7 @@ from teela_core.perception.scene_understanding import SceneUnderstanding
 from teela_core.gestures.pointing_integration import PointingSceneIntegrator
 from teela_core.comms.serial_link import SerialLink
 from teela_core.comms.cloud_bridge import CloudBridge
+from teela_core.voice.wakeword import WakeWordDetector
 from teela_core.voice.stt_mic import MicSTT
 from teela_core.voice.tts_speaker import SpeakerTTS
 from teela_core.expression.neck_expression import NeckExpression, NeckCommand
@@ -106,19 +107,32 @@ class TeelaRuntimeMind:
 
         # ── Hardware: Microphone / STT ────────────────
         self.mic = None
+        self.wake_detector = None
         if self.capabilities["ears"]:
             mic_cfg = hw.get("microphone", {})
+            voice_cfg = config.get("voice", {})
             self.mic = MicSTT(
                 stt_endpoint=mic_cfg.get("stt_endpoint"),
                 samplerate=mic_cfg.get("samplerate", 16000),
             )
             self._pending_transcript: Optional[str] = None
 
+            # Wake word
+            if voice_cfg.get("wakeword_enabled", True):
+                from teela_core.voice.wakeword import WakeWordDetector
+                self.wake_detector = WakeWordDetector(
+                    backend=voice_cfg.get("wakeword_type", "energy"),
+                )
+                self.mic.set_wake_word_detector(self.wake_detector)
+                self.mic.set_wake_callback(self._on_wake_word)
+
         # ── Hardware: Speaker / TTS ────────────────────
         speak_cfg = hw.get("speaker", {})
+        voice_cfg = config.get("voice", {})
         self.speaker = SpeakerTTS(
             mode=speak_cfg.get("mode", "stdout"),
-            edge_tts_voice=speak_cfg.get("edge_tts_voice", "en-US-AriaNeural"),
+            edge_tts_voice=voice_cfg.get("tts_voice", speak_cfg.get("edge_tts_voice", "en-US-ChristopherNeural")),
+            output_device=speak_cfg.get("output_device"),
         )
         if speak_cfg.get("play_beep", True):
             self.speaker.play_beep(880, 200)
@@ -319,6 +333,22 @@ class TeelaRuntimeMind:
                 print("[Mic] Type 'bye' to exit, or anything else to talk to Teela.")
 
     # ── Event Callbacks ──────────────────────────────────
+    def _on_wake_word(self) -> None:
+        """Called by MicSTT when 'Hey Teela' is detected."""
+        print("\n🔔 Wake word detected! Teela is now listening...")
+        self.speaker.play_beep(880, 200)
+        # Alert expression: look forward, slight tilt up
+        self._current_neck_cmd = NeckCommand(
+            pan_deg=0.0, tilt_deg=5.0, speed_dps=80.0,
+            hold_s=0.5, reason="wake_word_alert"
+        )
+        if self.serial._connected:
+            self.serial.send_neck(
+                self._current_neck_cmd.pan_deg,
+                self._current_neck_cmd.tilt_deg,
+                speed_dps=self._current_neck_cmd.speed_dps,
+            )
+
     def _on_transcript(self, text: str) -> None:
         """Called by MicSTT when speech is recognized."""
         print(f"\n[You 🎤]  {text}")

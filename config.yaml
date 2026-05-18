@@ -76,12 +76,36 @@ perception:
 
 voice:
   # Text-to-speech backend
-  backend: edge_tts     # options: edge_tts | espeak | stdout
+  # Recommendations (in order):
+  #   1. "edge_tts" — cloud-quality, zero local compute, ~1MB/s
+  #      Best voice: en-US-ChristopherNeural (warm, friendly)
+  #      Alternative: en-US-AriaNeural (calm, soft)
+  #      Full list: edge-tts --list-voices
+  #   2. "espeak" — offline, robotic, no network needed
+  #   3. "stdout" — just print text, for headless dev
+  backend: edge_tts
   prosody_enabled: true
 
-  # Wake word — simple energy threshold if no Porcupine
+  # TTS voice selection
+  # Try: edge-tts --text "Hello, I'm Teela." --voice "en-US-ChristopherNeural" --play
+  # Try: edge-tts --text "Hello, I'm Teela." --voice "en-US-NovaNeural" --play
+  tts_voice: en-US-ChristopherNeural   # or en-US-NovaNeural, en-US-AriaNeural
+
+  # Wake word — "Hey Teela"
+  # Backends (in order of preference):
+  #   "porcupine"  → Best. Offline, ~1MB, sub-200ms latency.
+  #                    Free for open-source. Sign up at picovoice.ai
+  #                    Requires: pip install pvporcupine + MODEL
+  #                    To train custom model: picovoice.ai/console
+  #   "openwakeword" → Open source ONNX. Uses ~50MB RAM.
+  #                    Requires: pip install openwakeword + model
+  #   "energy"       → Always works. Threshold-only. Higher false positives.
+  #
+  # To test: python3 -m teela_core.voice.wakeword --backend energy --duration 10
   wakeword_enabled: true
-  wakeword_type: energy_threshold  # or "porcupine"
+  wakeword_type: energy               # porcupine | openwakeword | energy
+  wakeword_sensitivity: 0.7
+  # wakeword_access_key: ""            # picovoice access key (if using porcupine)
 
 cloud:
   provider: kimi          # kimi | future others
