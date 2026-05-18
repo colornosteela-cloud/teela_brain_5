@@ -127,7 +127,7 @@ cloud:
   api_endpoint: http://localhost:11434
   model: kimi-k2.6:cloud  # local Ollama model
   api_key: null
-  max_tokens: 512
+  max_tokens: 4096       # MUST be >1000 for reasoning models like kimi-k2.6
   temperature: 0.8
   system_prompt_path: docs/TEELA_SYSTEM_PROMPT.md
   llm_provider: ollama    # used by CloudBridge: ollama | kimi
