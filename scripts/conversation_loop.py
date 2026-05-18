@@ -21,6 +21,7 @@ import base64
 import io
 import json
 import math
+import queue
 import signal
 import sys
 import threading
@@ -227,6 +228,19 @@ class TeelaRuntimeMind:
         self._running = True
         tick_hz = 10.0  # 10 Hz main cognition
 
+        # Start keyboard listener thread (so you can type even when mic is active)
+        self._keyboard_queue: queue.Queue = queue.Queue()
+        def _keyboard_reader():
+            while self._running:
+                try:
+                    line = input("[TYPE] ")
+                    if line.strip():
+                        self._keyboard_queue.put(line.strip())
+                except (EOFError, KeyboardInterrupt):
+                    time.sleep(0.3)
+        _kbd_thread = threading.Thread(target=_keyboard_reader, daemon=True)
+        _kbd_thread.start()
+
         while self._running:
             try:
                 self.tick()
@@ -269,6 +283,14 @@ class TeelaRuntimeMind:
         # ── 2. COGNITION ─────────────────────────────────
         emotion_state = self.emotion.update()
         emotion_dict = emotion_state.to_dict()
+
+        # Pull from keyboard thread if there's typed input
+        if hasattr(self, "_keyboard_queue"):
+            while not self._keyboard_queue.empty():
+                typed = self._keyboard_queue.get_nowait()
+                if typed:
+                    print(f"\n[You ⌨️ ]  {typed}")
+                    self._pending_transcript = typed
 
         # Decide if we should speak this tick
         should_speak = bool(self._pending_transcript)
