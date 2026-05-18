@@ -75,23 +75,32 @@ class BringupChecker:
 
     def _check_camera(self):
         cam_cfg = self.config.get("hardware", {}).get("camera", {})
-        dev = cam_cfg.get("device", "/dev/video0")
-        if not Path(dev).exists():
-            self.check("Camera", "fail", f"{dev} not found", "Plug in USB camera or check dmesg")
-            return
-        try:
-            cap = RealCamera(device=dev, width=640, height=480, fps=15)
-            cap.start()
-            time.sleep(0.5)
-            frame = cap.get_frame()
-            cap.stop()
-            if frame is not None:
-                h, w = frame.shape[:2]
-                self.check("Camera", "ok", f"{dev} → {w}x{h} ✅")
-            else:
-                self.check("Camera", "fail", "Device exists but no frames", "Check v4l2 driver")
-        except Exception as e:
-            self.check("Camera", "fail", str(e), "Install opencv-python, check udev rules")
+        indices = [cam_cfg.get("primary_index", 0)]
+        if cam_cfg.get("secondary_index") is not None:
+            indices.append(cam_cfg["secondary_index"])
+
+        for idx in indices:
+            dev = f"/dev/video{idx}"
+            role = "Left eye" if idx == indices[0] else "Right eye"
+            if not Path(dev).exists():
+                self.check(f"Camera ({role})", "fail", f"{dev} not found",
+                            "Plug in CSI camera or USB camera. Check ls /dev/video*")
+                continue
+            try:
+                from teela_core.perception.camera import RealCamera
+                cap = RealCamera(device=idx, width=640, height=480, fps=15)
+                cap.start()
+                time.sleep(0.5)
+                frame = cap.get_frame()
+                cap.stop()
+                if frame is not None:
+                    h, w = frame.shape[:2]
+                    self.check(f"Camera ({role})", "ok", f"{dev} → {w}x{h} ✅")
+                else:
+                    self.check(f"Camera ({role})", "fail", "Device exists but no frames",
+                                "Check v4l2 driver or run jetson-io setup")
+            except Exception as e:
+                self.check(f"Camera ({role})", "fail", str(e), "Install opencv-python, check udev rules")
 
     def _check_microphone(self):
         dev_cfg = self.config.get("hardware", {}).get("microphone", {})

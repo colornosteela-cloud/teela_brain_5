@@ -31,7 +31,7 @@ from typing import Optional
 import cv2
 import yaml
 
-from teela_core.perception.camera import RealCamera
+from teela_core.perception.camera import StereoCamera
 from teela_core.perception.scene_understanding import SceneUnderstanding
 from teela_core.gestures.pointing_integration import PointingSceneIntegrator
 from teela_core.comms.serial_link import SerialLink
@@ -58,7 +58,7 @@ signal.signal(signal.SIGINT, sigint_handler)
 
 
 class TeelaRuntimeMind:
-    """The brain as it exists TODAY — eyes, ears, neck, cloud."""
+    """The brain as it exists TODAY — eyes (one or two cameras), ears, neck, cloud."""
 
     _instance: Optional["TeelaRuntimeMind"] = None
 
@@ -83,11 +83,12 @@ class TeelaRuntimeMind:
             "e_skin": self.cap.get("e_skin", False),
         }
 
-        self.camera: Optional[RealCamera] = None
+        self.camera: Optional[StereoCamera] = None
         if self.capabilities["eyes"]:
             cam_cfg = hw.get("camera", {})
-            self.camera = RealCamera(
-                device=cam_cfg.get("device", "/dev/video0"),
+            self.camera = StereoCamera(
+                primary_device=cam_cfg.get("primary_index", 0),
+                secondary_device=cam_cfg.get("secondary_index"),
                 width=cam_cfg.get("width", 640),
                 height=cam_cfg.get("height", 480),
                 fps=cam_cfg.get("fps", 15),
@@ -218,7 +219,7 @@ class TeelaRuntimeMind:
         # ── 1. PERCEPTION (eyes) ───────────────────────────
         frame = None
         if self.camera:
-            frame = self.camera.get_frame()
+            frame = self.camera.get_left_frame()  # primary (left) eye — face tracking / pointing
 
         scene_description = "I see nothing."
         pointed_object = None

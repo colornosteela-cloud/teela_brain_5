@@ -13,11 +13,12 @@ This guide helps you deploy Teela on the **Jetson Nano Orin** with her
 | Component | Status | Required | Notes |
 |-----------|--------|----------|-------|
 | Jetson Nano Orin | ✅ Required | JetPack 6.x | Python 3.10+ |
-| USB Camera | ✅ Required | Any UVC camera | /dev/video0 |
+| **CSI Camera 0** (left eye) | ✅ Required | IMX219 or IMX477 | `sensor-id=0`, `/dev/video0` |
+| **CSI Camera 1** (right eye) | ⬜ Optional | IMX219 or IMX477 | `sensor-id=1`, `/dev/video1` |
 | USB Microphone | ✅ Required | Any USB mic | ALSA device |
 | Teensy 4.1 | ✅ Required | Running neck firmware | USB Serial |
-| Pan Servo | ✅ Required | MG996R or equivalent | 180° range |
-| Tilt Servo | ✅ Required | MG996R or equivalent | Pins 2 & 3 |
+| Pan Servo | ✅ Required | MG996R or equivalent | Pin 2, 180° range |
+| Tilt Servo | ✅ Required | MG996R or equivalent | Pin 3, 180° range |
 | Speaker | ⬜ Optional | Any ALSA output | fallback: stdout |
 | Leg servos | ⬜ Future | Not needed yet | Placeholder in config |
 | E-skin | ⬜ Future | Silicone + sensors | Placeholder in config |
@@ -46,8 +47,13 @@ ls /dev/video*
 # Verify camera properties with v4l2
 v4l2-ctl --device=/dev/video0 --all | head -20
 
-# Quick capture test
-gst-launch-1.0 nvarguscamerasrc ! 'video/x-raw(memory:NVMM),width=1280,height=720,framerate=30/1' ! nvvidconv ! xvimagesink
+# Quick capture test — single camera
+GST_ARGS="'video/x-raw(memory:NVMM),width=1280,height=720,framerate=30/1' ! nvvidconv ! xvimagesink"
+gst-launch-1.0 nvarguscamerasrc sensor-id=0 ! $GST_ARGS
+
+# Test dual cameras (if you have two CSI modules) — run in two terminals:
+gst-launch-1.0 nvarguscamerasrc sensor-id=0 ! $GST_ARGS
+gst-launch-1.0 nvarguscamerasrc sensor-id=1 ! $GST_ARGS
 ```
 
 **For IMX477 (High Quality Camera)**, you may need the
@@ -56,10 +62,15 @@ gst-launch-1.0 nvarguscamerasrc ! 'video/x-raw(memory:NVMM),width=1280,height=72
 out of the box.
 
 > ⚠️ **Important**: The OpenCV code in `teela_core/perception/camera.py` uses
-the standard V4L2 backend (`cv2.VideoCapture(0)`). CSI cameras work with
+the standard V4L2 backend (`cv2.VideoCapture(index)`). CSI cameras work with
 this backend once the `jetson-io.py` configuration is saved and the device
 node exists. If you use multiple cameras, adjust the `camera.index` value
-in `config.yaml` accordingly (e.g., `0` for CSI, `1` for USB).
+in `config.yaml` accordingly (e.g., `0` for CSI #1, `1` for CSI #2).
+
+> 🎥 **Dual Camera Setup**: With two CSI cameras, you can configure Teela for
+stereo depth estimation (eyes) or assign one camera for narrow field-of-view
+(face tracking) and one for wide field-of-view (room awareness).
+Update `camera.index` and `camera.secondary_index` in `config.yaml`.
 
 ### Wiring: Servos → Teensy 4.1
 

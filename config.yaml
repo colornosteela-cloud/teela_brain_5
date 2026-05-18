@@ -1,56 +1,60 @@
-# Teela v5.0 Configuration — Current Hardware
+# Teela v5.0 Configuration
+# https://github.com/colornosteela-cloud/teela_brain_5
 # ==============================================
-# This is the real config matching what is PHYSICALLY installed on Teela.
-# Update this as servos / legs / e-skin are added.
+# Hardware Truth — update this when you add components.
 
 robot:
   id: teela-001
   name: Teela
   hardware_version: "0.2-alpha"
   capabilities:
-    eyes: true        # USB camera / CSI camera
-    ears: true        # USB microphone
-    neck: true        # 2 servos: pan + tilt
-    legs: false       # not installed yet
-    arms: false       # not installed yet
-    hands: false      # not installed yet
-    e_skin: false     # silicone skin not fabricated yet
-    ultrasonic: false # no HC-SR04s mounted yet
-    imu: false        # no IMU wired yet
-    walking: false    # no gait engine active
+    eyes: true           # cameras active
+    ears: true           # microphone active
+    neck: true           # 2 servos: pan + tilt
+    legs: false          # not installed yet
+    arms: false          # not installed yet
+    hands: false         # not installed yet
+    e_skin: false        # silicone skin not fabricated yet
+    ultrasonic: false    # no HC-SR04s mounted yet
+    imu: false           # no IMU wired yet
+    walking: false       # no gait engine active
 
 hardware:
   camera:
-    type: usb          # or "csi"
-    device: /dev/video0
+    primary_index: 0       # /dev/video0 — left eye (CSI or USB)
+    secondary_index: null  # /dev/video1 — right eye (null = single camera)
     width: 640
     height: 480
     fps: 15
-    # V-JEPA can run at lower res if needed
-    capture_mode: rgb  # or "bgr"
+    # JetPack 6.x often auto-detects CSI cameras.
+    # If you have dual IMX219/IMX477, set secondary_index: 1
+    # To verify:
+    #   ls /dev/video*
+    #   v4l2-ctl -d /dev/video0 --all | head -20
+    #   python3 -m teela_core.perception.camera --primary 0 --secondary 1
 
   microphone:
-    device: "default"  # ALSA device name
+    device: "default"      # ALSA device name
     samplerate: 16000
     block_duration_ms: 1000
     silence_duration_ms: 1500
     stt_endpoint: "http://localhost:8000/transcribe"  # local whisper or cloud
 
   speaker:
-    mode: stdout        # options: stdout | aplay | edge_tts
+    mode: stdout           # options: stdout | aplay | edge_tts
     output_device: default
     edge_tts_voice: en-US-AriaNeural
-    play_beep: true     # audible wake-word / acknowledgment
+    play_beep: true        # audible wake-word / acknowledgment
 
   serial:
     port: /dev/ttyACM0
     baud: 921600
-    protocol: simple    # simple line-based for now
+    protocol: simple       # line-based: NECK, PING, STATUS
 
   servos:
     count: 2
-    controller: direct   # direct PWM from Teensy 4.1 pins (PCA9685 later)
-    pins: [2, 3]         # [pan, tilt]
+    controller: direct    # direct PWM from Teensy 4.1 pins (PCA9685 later)
+    pins: [2, 3]          # [pan, tilt]
     min_us: 500
     max_us: 2500
 
@@ -72,66 +76,58 @@ perception:
 
 voice:
   # Text-to-speech backend
-  backend: edge_tts    # options: edge_tts | espeak | stdout
+  backend: edge_tts     # options: edge_tts | espeak | stdout
   prosody_enabled: true
 
   # Wake word — simple energy threshold if no Porcupine
   wakeword_enabled: true
   wakeword_type: energy_threshold  # or "porcupine"
-  wakeword_phrase: "Teela"
-  energy_threshold: 0.015
-
-memory:
-  data_dir: ./memory
-  auto_save_interval_s: 60
-  max_short_term: 100
-
-navigation:
-  # Placeholder values — only relevant once legs are installed
-  grid_resolution_m: 0.05
-  grid_size_m: [10.0, 10.0]
-  robot_radius_m: 0.25
-  max_speed_mps: 0.8
-  max_yaw_rate_radps: 1.0
-  enabled: false
-
-safety:
-  ultrasonic_front_min: 0.4
-  ultrasonic_caution: 0.8
-  cliff_drop_cm: 10.0
-  tilt_max_deg: 25.0
 
 cloud:
-  # Kimi Cloud API (or local vLLM endpoint)
-  llm_provider: kimi
-  llm_model: kimi-k2.6
-  api_base: https://api.moonshot.cn/v1
-  api_key: null        # set via env KIMI_API_KEY
-  temperature: 0.7
-  max_tokens: 1024
-  # System prompt is loaded from docs/HUMANISTIC_DESIGN.md section
-  system_prompt_file: docs/TEELA_SYSTEM_PROMPT.md
-
-  # Connection management
-  reconnect_interval_s: 5.0
-  request_timeout_s: 30
-
-expression:
-  # Current actuator: neck pan/tilt only
-  # Full-body (silicone servos) is future
-  neck_enabled: true
-  body_enabled: false
-  face_enabled: false    # no LED face — silicone skin is future
-  prosody_enabled: true
+  provider: kimi          # kimi | future others
+  api_endpoint: https://api.moonshot.cn/v1/chat/completions
+  model: moonshot-v1-32k  # 32k context for long-term memory
+  api_key: null           # set via env KIMI_API_KEY or .env file
+  max_tokens: 512
+  temperature: 0.8
+  system_prompt_path: docs/TEELA_SYSTEM_PROMPT.md
 
 logging:
   level: INFO
-  path: logs/teela.log
-  health_check_interval_s: 5.0
+  file: /tmp/teela_runtime.log
+  max_size_mb: 10
+  format: "[{asctime}] {levelname:8s} | {name:20s} | {message}"
+  # Format keywords available: asctime, levelname, levelno, name, message, module, funcName, lineno
 
+emotional_state:
+  decay_rate: 0.95            # per tick decay (0.95 = slow, 0.5 = fast)
+  max_valence: 1.0
+  min_valence: -1.0
+  max_arousal: 1.0
+  max_dominance: 1.0
+
+# Proactive behaviors
 behavior:
+  idle_check_interval: 30.0    # seconds between idle-behavior triggers
   idle_enabled: true
-  proactive_enabled: true
   curiosity_enabled: true
-  # Only active when someone is present
-  idle_timeout_s: 15.0
+  social_attention_enabled: true
+  max_idle_duration: 300.0   # seconds before Teela becomes "bored"
+
+# Safety thresholds (reflex layer)
+safety:
+  unsafe_contact_levels:
+    pinch: 0.7               # forceful grip; dangerous for fingers
+    sharp: 0.8               # concentrated high-force contact
+    impact: 0.9              # sudden force spike
+    heat: 60.0               # degrees C skin surface
+
+# Physical calibration
+#   These get updated automatically by calibration scripts.
+calibration:
+  camera_height_cm: 120.0     # from ground to lens center
+  arm_reach_cm: 70.0         # max reach from torso center
+  hip_height_cm: 60.0         # standing joint height (for pointing math)
+  camera_yaw_deg: 0.0        # mount offset from forward
+  camera_pitch_deg: -10.0    # looking slightly down at floor plane
+  torso_radius_cm: 25.0       # body cylinder radius
