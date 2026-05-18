@@ -36,6 +36,17 @@ EMOTION_SSML: Dict[str, str] = {
     "terrified":  "terrified",
     "apologetic": "apologetic",
     "empathetic": "empathetic",
+    "loving":     "friendly",
+    "flirty":     "excited",
+    "sassy":      "cheerful",
+    "scared":     "terrified",
+    "confused":   "sad",
+    "proud":      "cheerful",
+    "surprised":  "excited",
+    "sleepy":     "sad",
+    "disappointed": "sad",
+    "general":    "default",
+    "curious":    "friendly",
 }
 
 
@@ -159,6 +170,10 @@ class SpeakerTTS:
             "sad": "😢", "depressed": "😢", "angry": "😠",
             "whispering": "🤫", "whisper": "🤫",
             "terrified": "😱", "apologetic": "😔", "empathetic": "💗",
+            "loving": "💖", "flirty": "😘", "sassy": "💅",
+            "scared": "😨", "confused": "🤔", "proud": "💪",
+            "surprised": "😲", "sleepy": "😴", "disappointed": "😞",
+            "general": "🙂", "curious": "🤩", "friendly": "🥰",
         }
         return emap.get(emotion.lower() if emotion else "", "🗣️")
 

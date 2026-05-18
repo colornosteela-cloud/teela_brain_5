@@ -91,17 +91,17 @@ perception:
 
 voice:
   # TTS Engine Selection
-  #   "chatterbox" → Chatterbox-Turbo with Jade's cloned voice (15 emotions!)
-  #                   Offline, ultra-realistic, uses cloned voice files
-  #                   Install: pip install chatterbox-tts
-  #                   Voices: voices/jade_cloned/ (15 emotion WAVs)
-  #   "edge_tts"   → Cloud TTS via Microsoft Azure (internet required)
+  #   "edge_tts"   → Cloud TTS via Microsoft Azure (FAST! <1s response)
   #                   Voices: en-US-AvaNeural, en-US-JennyNeural, etc.
+  #   "chatterbox" → Chatterbox-Turbo with Jade's cloned voice (15 emotions!)
+  #                   ULTRA REALISTIC but SLOW on CPU (~17 min per response)
+  #                   Use for special moments, not real-time chat.
+  #                   Install: pip install chatterbox-tts
   #   "stdout"     → Text only, no audio (for headless testing)
-  tts_engine: auto           # auto | chatterbox | edge_tts | stdout
+  tts_engine: edge_tts       # edge_tts | chatterbox | stdout
   voices_dir: voices/jade_cloned  # For chatterbox mode: path to cloned voices
 
-  # Edge TTS fallback settings (only used when tts_engine = edge_tts)
+  # Edge TTS settings (FAST real-time conversations!)
   backend: edge_tts
   prosody_enabled: true
   tts_voice: en-US-AvaNeural

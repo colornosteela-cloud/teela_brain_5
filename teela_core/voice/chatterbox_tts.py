@@ -31,22 +31,22 @@ sys.path.insert(0, str(_HOME / ".local" / "lib" / "python3.10" / "site-packages"
 
 # ── Emotion → Voice file + Tags mapping ───────────────────────
 EMOTION_VOICE_MAP: Dict[str, Dict] = {
-    "happy":      {"file": "teela_clone_01_happy.wav", "emoji": "😊"},
-    "general":    {"file": "teela_clone_01_happy.wav", "emoji": "🙂"},
-    "surprised":  {"file": "teela_clone_02_surprised.wav", "emoji": "😲"},
-    "angry":      {"file": "teela_clone_03_angry.wav", "emoji": "😠"},
-    "proud":      {"file": "teela_clone_04_proud.wav", "emoji": "💪"},
-    "whispering": {"file": "teela_clone_05_whispering.wav", "emoji": "🤫"},
-    "sad":        {"file": "teela_clone_06_sad.wav", "emoji": "😢"},
-    "curious":    {"file": "teela_clone_07_curious_awed.wav", "emoji": "🤩"},
-    "sassy":      {"file": "teela_clone_08_sassy.wav", "emoji": "💅"},
-    "flirty":     {"file": "teela_clone_09_flirty.wav", "emoji": "😘"},
-    "sleepy":     {"file": "teela_clone_10_sleepy.wav", "emoji": "😴"},
-    "scared":     {"file": "teela_clone_11_scared.wav", "emoji": "😨"},
-    "loving":     {"file": "teela_clone_12_loving.wav", "emoji": "💖"},
-    "confused":   {"file": "teela_clone_13_confused.wav", "emoji": "🤔"},
-    "excited":    {"file": "teela_clone_14_excited.wav", "emoji": "🎉"},
-    "disappointed": {"file": "teela_clone_15_disappointed.wav", "emoji": "😞"},
+    "happy":      {"file": "teela_clone_01_happy.wav", "emoji": "😊", "ssml": "cheerful"},
+    "general":    {"file": "teela_clone_01_happy.wav", "emoji": "🙂", "ssml": "default"},
+    "surprised":  {"file": "teela_clone_02_surprised.wav", "emoji": "😲", "ssml": "excited"},
+    "angry":      {"file": "teela_clone_03_angry.wav", "emoji": "😠", "ssml": "angry"},
+    "proud":      {"file": "teela_clone_04_proud.wav", "emoji": "💪", "ssml": "cheerful"},
+    "whispering": {"file": "teela_clone_05_whispering.wav", "emoji": "🤫", "ssml": "whispering"},
+    "sad":        {"file": "teela_clone_06_sad.wav", "emoji": "😢", "ssml": "sad"},
+    "curious":    {"file": "teela_clone_07_curious_awed.wav", "emoji": "🤩", "ssml": "friendly"},
+    "sassy":      {"file": "teela_clone_08_sassy.wav", "emoji": "💅", "ssml": "cheerful"},
+    "flirty":     {"file": "teela_clone_09_flirty.wav", "emoji": "😘", "ssml": "excited"},
+    "sleepy":     {"file": "teela_clone_10_sleepy.wav", "emoji": "😴", "ssml": "sad"},
+    "scared":     {"file": "teela_clone_11_scared.wav", "emoji": "😨", "ssml": "terrified"},
+    "loving":     {"file": "teela_clone_12_loving.wav", "emoji": "💖", "ssml": "friendly"},
+    "confused":   {"file": "teela_clone_13_confused.wav", "emoji": "🤔", "ssml": "sad"},
+    "excited":    {"file": "teela_clone_14_excited.wav", "emoji": "🎉", "ssml": "excited"},
+    "disappointed": {"file": "teela_clone_15_disappointed.wav", "emoji": "😞", "ssml": "sad"},
 }
 
 EMOTION_PATTERNS = {
