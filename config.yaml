@@ -122,17 +122,19 @@ voice:
   # wakeword_access_key: ""            # picovoice access key (if using porcupine)
 
 cloud:
-  provider: kimi          # kimi | future others
-  api_endpoint: https://api.moonshot.cn/v1/chat/completions
-  model: moonshot-v1-32k  # 32k context for long-term memory
-  api_key: null           # set via env KIMI_API_KEY or .env file
+  provider: ollama        # ollama | kimi
+  api_endpoint: http://localhost:11434
+  model: kimi-k2.6:cloud  # local Ollama model
+  api_key: null
   max_tokens: 512
   temperature: 0.8
   system_prompt_path: docs/TEELA_SYSTEM_PROMPT.md
+  llm_provider: ollama    # used by CloudBridge: ollama | kimi
+  llm_model: kimi-k2.6:cloud
+  api_base: http://localhost:11434
 
 logging:
   level: INFO
-  file: /tmp/teela_runtime.log
   max_size_mb: 10
   format: "[{asctime}] {levelname:8s} | {name:20s} | {message}"
   # Format keywords available: asctime, levelname, levelno, name, message, module, funcName, lineno

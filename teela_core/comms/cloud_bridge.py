@@ -33,8 +33,14 @@ class CloudBridge:
         cfg = config or {}
         self.provider = cfg.get("llm_provider", "kimi")
         self.model = cfg.get("llm_model", "kimi-k2.6")
-        self.api_base = cfg.get("api_base", "https://api.moonshot.cn/v1")
-        self.api_key = os.getenv("KIMI_API_KEY") or cfg.get("api_key", "")
+
+        if self.provider == "ollama":
+            self.api_base = cfg.get("api_base", "http://localhost:11434")
+            self.api_key = ""
+        else:
+            self.api_base = cfg.get("api_base", "https://api.moonshot.cn/v1")
+            self.api_key = os.getenv("KIMI_API_KEY") or cfg.get("api_key", "")
+
         self.temperature = cfg.get("temperature", 0.7)
         self.max_tokens = cfg.get("max_tokens", 1024)
         self.timeout_s = cfg.get("request_timeout_s", 30)
@@ -103,17 +109,18 @@ Your body is a work in progress. Currently you only have a neck (pan/tilt).
 
         t0 = time.time()
         try:
-            with urllib.request.urlopen(req, timeout=self.timeout_s) as resp:
-                body = json.loads(resp.read().decode())
-        except urllib.error.HTTPError as e:
-            return LLMResponse(text=f"[LLM HTTP error {e.code}: {e.reason}]")
-        except urllib.error.URLError as e:
-            return LLMResponse(text=f"[LLM connection error: {e.reason}]")
+            if self.provider == "ollama":
+                resp = self._chat_ollama(messages, t0)
+            else:
+                resp = self._chat_openai(req, t0)
+            return resp
         except Exception as e:
             return LLMResponse(text=f"[LLM error: {e}]")
 
+    def _chat_openai(self, req: urllib.request.Request, t0: float) -> LLMResponse:
+        with urllib.request.urlopen(req, timeout=self.timeout_s) as resp:
+            body = json.loads(resp.read().decode())
         latency = (time.time() - t0) * 1000
-
         if "choices" in body and len(body["choices"]) > 0:
             reply = body["choices"][0]["message"]["content"]
             finish = body["choices"][0].get("finish_reason", "unknown")
@@ -125,8 +132,38 @@ Your body is a work in progress. Currently you only have a neck (pan/tilt).
                 finish_reason=finish,
                 raw=body,
             )
-
         return LLMResponse(text="[No reply from LLM]", raw=body)
+
+    def _chat_ollama(self, messages: List[dict], t0: float) -> LLMResponse:
+        url = f"{self.api_base}/api/chat"
+        payload = json.dumps({
+            "model": self.model,
+            "messages": messages,
+            "stream": False,
+            "options": {
+                "temperature": self.temperature,
+                "num_predict": self.max_tokens,
+            },
+        }).encode()
+        req = urllib.request.Request(
+            url,
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=self.timeout_s) as resp:
+            body = json.loads(resp.read().decode())
+        latency = (time.time() - t0) * 1000
+        if "message" in body:
+            msg = body["message"]
+            return LLMResponse(
+                text=msg.get("content", "").strip(),
+                latency_ms=latency,
+                tokens_used=body.get("prompt_eval_count", 0) + body.get("eval_count", 0),
+                finish_reason="stop" if not body.get("done_reason") else body["done_reason"],
+                raw=body,
+            )
+        return LLMResponse(text="[No reply from Ollama]", raw=body)
 
     def quick_reply(self, prompt: str) -> str:
         """Simple interface: text in, text out."""
