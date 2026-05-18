@@ -1,0 +1,58 @@
+# Teela v5.0 Configuration
+
+robot:
+  id: teela-001
+  name: Teela
+
+hardware:
+  camera:
+    index: 0
+    width: 640
+    height: 480
+    fps: 15
+  serial:
+    port: /dev/ttyACM0
+    baud: 921600
+  imu:
+    type: mpu6050  # or bno055
+    i2c_addr: 0x68
+  ultrasonic:
+    trigger_pin: 9
+    echo_pin: 10
+  servos:
+    count: 12
+    controller: pca9685
+    i2c_addr: 0x40
+    min_us: 500
+    max_us: 2500
+
+perception:
+  vjepa_model: facebook/v-jepa-2
+  moondream_model: null  # vikhyatk/moondream2 if desired
+  target_fps: 10
+  output_path: /tmp/scene_state.json
+
+navigation:
+  grid_resolution_m: 0.05
+  grid_size_m: [10.0, 10.0]
+  robot_radius_m: 0.25
+  max_speed_mps: 0.8
+  max_yaw_rate_radps: 1.0
+
+safety:
+  ultrasonic_front_min: 0.4
+  ultrasonic_caution: 0.8
+  cliff_drop_cm: 10.0
+  tilt_max_deg: 25.0
+
+cloud:
+  websocket_uri: ws://localhost:8080/teela
+  llm_api_url: http://localhost:8000/v1/chat/completions
+  llm_model: kimi-k2.6
+  api_key: null  # set via env var LLM_API_KEY
+  reconnect_interval_s: 5.0
+
+logging:
+  level: INFO
+  path: logs/teela.log
+  health_check_interval_s: 5.0

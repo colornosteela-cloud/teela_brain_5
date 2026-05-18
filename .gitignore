@@ -1,0 +1,59 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+ENV/
+env/
+
+# Jetson / hardware
+checkpoints/
+*.onnx
+*.pt
+*.pth
+*.engine
+calibration_data/
+logs/
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Teensy firmware build
+teensy_firmware/build/
+*.hex
+*.elf
+
+# Data
+data/
+episodes/
+rosbags/
+
+# Secrets
+.env
+secrets.yaml
+config.local.yaml

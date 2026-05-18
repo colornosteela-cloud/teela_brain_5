@@ -1,0 +1,73 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "teela-brain"
+version = "5.0.0"
+description = "Teela humanoid robot brain -- perception, navigation, gait, reasoning"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.10"
+authors = [
+    {name = "Roni", email = "colornos.teela@gmail.com"}
+]
+keywords = ["robotics", "humanoid", "V-JEPA", "jetson", "teensy"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "License :: OSI Approved :: MIT License",
+]
+
+dependencies = [
+    "numpy>=1.24.0",
+    "opencv-python>=4.8.0",
+    "torch>=2.1.0",
+    "transformers>=4.36.0",
+    "pillow>=10.0.0",
+    "websockets>=12.0",
+    "pyserial>=3.5",
+    "pyyaml>=6.0",
+    "scipy>=1.11.0",
+    "schedule>=1.2.0",
+    "requests>=2.31.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-asyncio>=0.21.0",
+    "black>=23.7.0",
+    "ruff>=0.1.0",
+    "mypy>=1.5.0",
+]
+jetson = [
+    "torchvision>=0.16.0",
+    "onnx>=1.15.0",
+    "tensorrt>=8.6.0",
+]
+
+[project.scripts]
+teela-bringup = "scripts.bringup:main"
+teela-health = "scripts.health_check:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["teela_core*", "cloud_reasoning*", "scripts*"]
+
+[tool.black]
+line-length = 100
+target-version = ["py310"]
+
+[tool.ruff]
+line-length = 100
+select = ["E", "F", "W", "I", "N", "UP"]
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+warn_return_any = true
+warn_unused_ignores = true
