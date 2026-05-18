@@ -192,9 +192,15 @@ class SpeakerTTS:
             await communicate.save(tmp_path)
 
             # ── Play via GStreamer (Jetson native, handles MP3 → ALSA) ─
-            cmd = ["gst-launch-1.0", "playbin", f"uri=file://{tmp_path}"]
             if self.output_device:
-                cmd.append(f"audio-sink=alsasink device={self.output_device}")
+                cmd = [
+                    "gst-launch-1.0", "filesrc", f"location={tmp_path}",
+                    "!", "decodebin", "!", "audioconvert", "!", "audioresample",
+                    "!", "alsasink", f"device={self.output_device}",
+                ]
+            else:
+                # Use playbin with default PulseAudio/ALSA sink
+                cmd = ["gst-launch-1.0", "playbin", f"uri=file://{tmp_path}"]
 
             result = subprocess.run(cmd, capture_output=True, timeout=30)
             if result.returncode != 0:
