@@ -324,8 +324,8 @@ class TeelaRuntimeMind:
             scene_description = json.dumps(asdict(self._scene_state)) if self._scene_state else "unknown scene"
 
             # Extract pointing
-            if self._scene_state.pointed_object:
-                pointed_object = self._scene_state.pointed_object
+            if self._scene_state.pointed_at:
+                pointed_object = self._scene_state.pointed_at
             # Extract person positions
             for det in getattr(self._scene_state, "humans", {}).get("detections", []):
                 if "position" in det:
