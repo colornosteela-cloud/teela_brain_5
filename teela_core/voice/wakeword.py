@@ -44,7 +44,8 @@ class WakeWordDetector:
 
         # Energy gating — sounddevice returns float32 in [-1.0, +1.0]
         # 0.02 is a normal speaking voice at 50cm, 0.01 is quiet room
-        self._energy_threshold = 0.012
+        # NOTE: this lavalier mic is quiet — threshold lowered
+        self._energy_threshold = 0.006
         self._energy_bg = 0.0005
         self._energy_alpha = 0.98
 

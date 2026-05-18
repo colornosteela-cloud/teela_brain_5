@@ -54,9 +54,10 @@ hardware:
     silence_duration_ms: 1500  # end-of-utterance silence
 
   speaker:
-    mode: stdout           # options: stdout | aplay | edge_tts
-    output_device: default
-    edge_tts_voice: en-US-AriaNeural
+    mode: edge_tts           # options: stdout | edge_tts    
+    # NOTE: set to 'stdout' for headless testing (text only, no audio)
+    output_device: plughw:1,0  # USB speaker (card 1, device 0)
+    edge_tts_voice: en-US-ChristopherNeural
     play_beep: true        # audible wake-word / acknowledgment
 
   serial:

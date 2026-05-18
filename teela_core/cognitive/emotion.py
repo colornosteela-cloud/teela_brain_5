@@ -54,6 +54,20 @@ class EmotionalState:
             "timestamp": self.timestamp,
         }
 
+    def describe(self) -> str:
+        """Human-readable emotional summary."""
+        primary = sorted([
+            ("joy", self.joy), ("trust", self.trust), ("fear", self.fear),
+            ("surprise", self.surprise), ("sadness", self.sadness),
+            ("disgust", self.disgust), ("anger", self.anger),
+            ("anticipation", self.anticipation), ("curiosity", self.curiosity),
+            ("boredom", self.boredom),
+        ], key=lambda x: x[1], reverse=True)
+        top = [f"{n}: {v:.2f}" for n, v in primary[:2] if v > 0.1]
+        if not top:
+            top = ["neutral"]
+        return f"PAD({self.pleasure:.2f}, {self.arousal:.2f}, {self.dominance:.2f}), dominant: {', '.join(top)}"
+
 
 @dataclass
 class EmotionalEvent:

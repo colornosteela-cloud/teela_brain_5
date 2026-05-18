@@ -13,7 +13,7 @@ allows coherent behavior and honest communication about limitations.
 
 import time
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 
 @dataclass
@@ -30,6 +30,9 @@ class BodyState:
     eskin_last_contact_time: float = 0.0
     eskin_unsafe_zones: List[str] = field(default_factory=list)  # zones with unsafe pressure
     eskin_contact_count_today: int = 0
+    # Identity / emotional state surfaced on body
+    name: str = "Teela"
+    feelings: str = "neutral"
 
 
 @dataclass
@@ -37,16 +40,16 @@ class Capability:
     name: str
     can_do: bool
     confidence: float  # how reliable (0-1)
-    last_successful: Optional[float] = None
-    failure_count_recent: int = 0
+
+    def __repr__(self):
+        status = "YES" if self.can_do else "NO"
+        return f"{self.name}: {status} ({self.confidence:.0%})"
 
 
 @dataclass
 class Intention:
-    """What Teela is currently trying to do."""
-    action_type: str  # move_to, speak, observe, rest, interact, explore
-    target: Optional[str] = None
-    target_position: Optional[tuple] = None
+    action: str
+    urgency: int  # 1-10
     reason: str = ""
     start_time: float = field(default_factory=time.time)
     estimated_duration_s: float = 0.0
@@ -79,6 +82,9 @@ class SelfModel:
         self._last_update = now
         self.uptime_s += dt
 
+    def update_body_state(self, body_state: BodyState) -> None:
+        self.body = body_state
+
     def can_i(self, capability_name: str) -> Tuple[bool, str]:
         """Honest self-assessment of capabilities."""
         if capability_name not in self.capabilities:
@@ -100,6 +106,6 @@ class SelfModel:
             f"Battery: {self.body.battery_pct:.0f}%",
             f"Uptime: {self.uptime_s/3600:.1f} hours",
             f"Interactions today: {self.total_interactions}",
-            f"Currently: {self.current_intention.action_type if self.current_intention else 'idle'}",
+            f"Currently: {self.current_intention.action if self.current_intention else 'idle'}",
         ]
         return " | ".join(parts)

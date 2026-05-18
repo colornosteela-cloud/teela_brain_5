@@ -69,23 +69,28 @@ class SpeakerTTS:
             return
 
     def _speak_edge_tts(self, text: str) -> None:
-        """Generate audio via edge-tts and play with aplay."""
+        """Generate audio via edge-tts and play with GStreamer (Jetson native)."""
         try:
             import edge_tts
             import asyncio
+            import subprocess, os, tempfile
 
             async def _gen():
                 communicate = edge_tts.Communicate(text, self.edge_tts_voice)
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as f:
                     tmp_path = f.name
                 await communicate.save(tmp_path)
-                if self._aplay_available:
-                    subprocess.run(
-                        ["aplay", "-D", self.output_device or "default", tmp_path]
-                        if self.output_device
-                        else ["aplay", tmp_path],
-                        capture_output=True,
-                    )
+                # GStreamer: decode MP3 and play via ALSA
+                cmd = [
+                    "gst-launch-1.0", "playbin",
+                    f"uri=file://{tmp_path}"
+                ]
+                # If specific ALSA device requested, override audio-sink
+                if self.output_device:
+                    cmd.append(f"audio-sink=alsasink device={self.output_device}")
+                result = subprocess.run(cmd, capture_output=True, timeout=30)
+                if result.returncode != 0:
+                    print(f"[SpeakerTTS] GStreamer error: {result.stderr.decode()[:200]}")
                 os.unlink(tmp_path)
 
             asyncio.run(_gen())
@@ -104,16 +109,25 @@ class SpeakerTTS:
             return
         # Generate a simple sine wav via sox or python
         try:
-            from scipy.io import wavfile
-            import numpy as np
+            import struct, math, tempfile, os
             sr = 22050
-            t = np.linspace(0, duration_ms / 1000, int(sr * duration_ms / 1000), False)
-            tone = np.sin(freq * 2 * np.pi * t) * 0.3
-            tone = (tone * 32767).astype(np.int16)
+            t = int(sr * duration_ms / 1000)
+            samples = []
+            for i in range(t):
+                v = int(math.sin(freq * 2 * math.pi * i / sr) * 0.3 * 32767)
+                samples.append(struct.pack('<h', v))
+            data = b''.join(samples)
             with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
-                wavfile.write(f.name, sr, tone)
+                # WAV header
+                f.write(b'RIFF')
+                f.write(struct.pack('<I', 36 + len(data)))
+                f.write(b'WAVEfmt ')
+                f.write(struct.pack('<IHHIIHH', 16, 1, 1, sr, sr*2, 2, 16))
+                f.write(b'data')
+                f.write(struct.pack('<I', len(data)))
+                f.write(data)
                 tmp = f.name
-            subprocess.run(["aplay", tmp], capture_output=True)
+            subprocess.run(["aplay", "-D", self.output_device or "default", tmp], capture_output=True)
             os.unlink(tmp)
         except Exception:
             pass

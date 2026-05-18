@@ -198,8 +198,7 @@ class TeelaRuntimeMind:
             print("[Startup] Microphone listening (or keyboard fallback).")
 
         # Identity
-        self.identity.state.name = "Teela"
-        self.identity.state.feelings = "ready and curious"
+        self.identity.update_body_state(BodyState(name="Teela", feelings="ready and curious"))
         self.emotion.update(EmotionalEvent(
             event_type="startup", valence_impact=0.3, arousal_impact=0.2,
             dominance_impact=0.0, reason="I'm waking up."
@@ -285,7 +284,7 @@ class TeelaRuntimeMind:
             if pointed_object:
                 context_parts.append(f"Person is pointing at: {pointed_object}")
             context_parts.append(f"My neck posture (pan, tilt): {self._current_neck_cmd or 'neutral'}")
-            context_parts.append(f"My identity: {self.identity.state.name}. {self.identity.state.feelings}")
+            context_parts.append(f"My identity: {self.identity.body.name}. {self.identity.body.feelings}")
 
             extra_system = "\n".join(context_parts)
 
@@ -340,7 +339,7 @@ class TeelaRuntimeMind:
         # ── 6. MEMORY SAVE (periodically) ─────────────────
         if self._tick_count % 100 == 0:  # every 10s
             self.memory.save()
-            if self.mic and not self.mic._has_sounddevice:
+            if self.mic:
                 print("[Mic] Type 'bye' to exit, or anything else to talk to Teela.")
 
     # ── Event Callbacks ──────────────────────────────────
