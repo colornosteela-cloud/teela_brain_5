@@ -54,8 +54,9 @@ hardware:
     silence_duration_ms: 1500  # end-of-utterance silence
 
   speaker:
-    mode: edge_tts           # options: stdout | edge_tts    
+    mode: edge_tts           # options: stdout | edge_tts | chatterbox
     # NOTE: set to 'stdout' for headless testing (text only, no audio)
+    #       'chatterbox' loads Jade's cloned voice via Chatterbox-Turbo
     output_device: plughw:1,0  # USB speaker (card 1, device 0)
     edge_tts_voice: en-US-AvaNeural       # Modern, clear voice for Teela
     play_beep: true        # audible wake-word / acknowledgment
@@ -89,20 +90,21 @@ perception:
   output_path: /tmp/scene_state.json
 
 voice:
-  # Text-to-speech backend
-  # Recommendations (in order):
-  #   1. "edge_tts" — cloud-quality, zero local compute, ~1MB/s
-  #      Best voices: en-US-AvaNeural (modern, clear), en-US-JennyNeural (energetic teen)
-  #      Full list: edge-tts --list-voices
-  #   2. "espeak" — offline, robotic, no network needed
-  #   3. "stdout" — just print text, for headless dev
+  # TTS Engine Selection
+  #   "chatterbox" → Chatterbox-Turbo with Jade's cloned voice (15 emotions!)
+  #                   Offline, ultra-realistic, uses cloned voice files
+  #                   Install: pip install chatterbox-tts
+  #                   Voices: voices/jade_cloned/ (15 emotion WAVs)
+  #   "edge_tts"   → Cloud TTS via Microsoft Azure (internet required)
+  #                   Voices: en-US-AvaNeural, en-US-JennyNeural, etc.
+  #   "stdout"     → Text only, no audio (for headless testing)
+  tts_engine: auto           # auto | chatterbox | edge_tts | stdout
+  voices_dir: voices/jade_cloned  # For chatterbox mode: path to cloned voices
+
+  # Edge TTS fallback settings (only used when tts_engine = edge_tts)
   backend: edge_tts
   prosody_enabled: true
-
-  # TTS voice selection
-  # Try: edge-tts --text "Hello, I'm Teela." --voice "en-US-JennyNeural" --play
-  # Try: edge-tts --text "Hello, I'm Teela." --voice "en-US-AriaNeural" --play
-  tts_voice: en-US-AvaNeural            # Modern, clear voice for Teela
+  tts_voice: en-US-AvaNeural
 
   # Wake word — "Hey Teela"
   # Backends (in order of preference):

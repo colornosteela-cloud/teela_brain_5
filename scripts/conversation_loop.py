@@ -39,7 +39,17 @@ from teela_core.comms.serial_link import SerialLink
 from teela_core.comms.cloud_bridge import CloudBridge
 from teela_core.voice.wakeword import WakeWordDetector
 from teela_core.voice.stt_mic import MicSTT
-from teela_core.voice.tts_speaker import SpeakerTTS
+
+# Try Chatterbox first, fallback to SpeakerTTS
+try:
+    from teela_core.voice.chatterbox_tts import ChatterboxSpeaker as SpeakerTTS
+    _CHATTERBOX_AVAILABLE = True
+    print("[Import] ChatterboxSpeaker loaded (emotional voice cloning)")
+except ImportError:
+    from teela_core.voice.tts_speaker import SpeakerTTS
+    _CHATTERBOX_AVAILABLE = False
+    print("[Import] Fallback to SpeakerTTS (cloud/robotic voices)")
+
 from teela_core.expression.neck_expression import NeckExpression, NeckCommand
 
 # Cognitive modules (available regardless of actuators)
@@ -141,11 +151,31 @@ class TeelaRuntimeMind:
         # ── Hardware: Speaker / TTS ────────────────────
         speak_cfg = hw.get("speaker", {})
         voice_cfg = config.get("voice", {})
-        self.speaker = SpeakerTTS(
-            mode=speak_cfg.get("mode", "stdout"),
-            edge_tts_voice=voice_cfg.get("tts_voice", speak_cfg.get("edge_tts_voice", "en-US-ChristopherNeural")),
-            output_device=speak_cfg.get("output_device"),
-        )
+        tts_engine = voice_cfg.get("tts_engine", "auto")
+        
+        # Auto-detect best TTS engine
+        if tts_engine == "auto":
+            if _CHATTERBOX_AVAILABLE:
+                tts_engine = "chatterbox"
+                print("[TTS] Using Chatterbox-Turbo (Jade's cloned voice with 15 emotions)")
+            else:
+                tts_engine = "edge_tts"
+                print("[TTS] Using Edge TTS fallback")
+        
+        # Configure SpeakerTTS
+        if tts_engine == "chatterbox":
+            self.speaker = SpeakerTTS(
+                mode="chatterbox",
+                voices_dir=voice_cfg.get("voices_dir", "voices/jade_cloned"),
+                device="cpu",
+                output_device=speak_cfg.get("output_device"),
+            )
+        else:
+            self.speaker = SpeakerTTS(
+                mode=speak_cfg.get("mode", "stdout"),
+                edge_tts_voice=voice_cfg.get("tts_voice", speak_cfg.get("edge_tts_voice", "en-US-JennyNeural")),
+                output_device=speak_cfg.get("output_device"),
+            )
         if speak_cfg.get("play_beep", True):
             self.speaker.play_beep(880, 200)
 
